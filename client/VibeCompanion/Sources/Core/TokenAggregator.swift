@@ -24,6 +24,9 @@ final class TokenAggregator: ObservableObject {
     /// 今日累计 Total Tokens。
     @Published private(set) var todayTotal: Int = 0
     /// 近期观察到的最大速率，供自适应量程使用。
+    ///
+    /// "近期"是真的近期：每次 `recompute()` 按 `peakHalfLife` 施加指数衰减，
+    /// 峰值会自己降回来。见 `decayPeak(to:)`。
     @Published private(set) var recentPeak: Double = 0
 
     // MARK: 内部状态
@@ -37,6 +40,19 @@ final class TokenAggregator: ObservableObject {
     private let idleTimeout: TimeInterval
     private let now: () -> Date
     private var timer: Timer?
+    /// 上次对 `recentPeak` 施加衰减的时刻。nil 表示还没跑过 `recompute()`。
+    private var lastPeakDecay: Date?
+
+    /// `recentPeak` 的半衰期（秒）。
+    ///
+    /// 为什么是指数衰减而不是"只取当前活跃块内的峰值"：session block 长达 5 小时，
+    /// 块内峰值同样会把一次尖峰钉住整整一个块——换汤不换药。而按固定窗口
+    /// 取最大值则要额外维护一条速率历史，收益不抵复杂度。
+    ///
+    /// 为什么是 5 分钟：一次 760k 的尖峰（本机实测最大值）约 15 分钟衰到 ~95k，
+    /// 量程随之收回到 100k 档；同时 5 分钟远长于常见的思考/编译/审阅间隙，
+    /// 连续会话里的真实峰值不会被中途抹掉。
+    private static let peakHalfLife: TimeInterval = 300
 
     init(pricing: PricingSource?,
          retentionHours: Double = 6,
@@ -71,6 +87,8 @@ final class TokenAggregator: ObservableObject {
     /// 驱逐过期条目、重新分块、更新全部发布状态。
     func recompute() {
         let t = now()
+        // 先衰减：无论后面走哪条分支（含 reset 早返回），峰值都必须随时间回落
+        decayPeak(to: t)
         window.evict(now: t)
         dailyWindow.evict(now: t)
 
@@ -98,10 +116,23 @@ final class TokenAggregator: ObservableObject {
         indicatorTokensPerMinute = idle ? 0 : rate.tokensPerMinuteForIndicator
         level = BurnRateLevel.from(indicator: indicatorTokensPerMinute)
         costPerHour = idle ? nil : rate.costPerHour
-        recentPeak = max(recentPeak, rate.tokensPerMinute)
+        // 喂给峰值的是**显示中的**速率：空闲时显示 0，峰值就该继续衰减，
+        // 而不是被块的历史平均速率一直顶住（块能横跨 5 小时，那个值几乎不动）。
+        recentPeak = max(recentPeak, tokensPerMinute)
     }
 
     // MARK: - private
+
+    /// 对 `recentPeak` 施加指数衰减。首次调用只记时刻、不衰减。
+    private func decayPeak(to t: Date) {
+        defer { lastPeakDecay = t }
+        guard let last = lastPeakDecay, recentPeak > 0 else { return }
+        let dt = t.timeIntervalSince(last)
+        guard dt > 0 else { return }
+        let decayed = recentPeak * pow(0.5, dt / Self.peakHalfLife)
+        // 收敛到 0，免得留一条永远接近 0 但不为 0 的长尾
+        recentPeak = decayed < 1 ? 0 : decayed
+    }
 
     private func reset() {
         hasBurnRate = false

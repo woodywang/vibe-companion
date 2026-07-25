@@ -187,4 +187,65 @@ final class TokenAggregatorTests: XCTestCase {
         XCTAssertGreaterThan(peak, 0)
         XCTAssertGreaterThanOrEqual(peak, a.tokensPerMinute)
     }
+
+    /// 时钟可推进的聚合器，用于观察 `recentPeak` 随时间的回落
+    private func movableAggregator() -> (TokenAggregator, (Double) -> Void) {
+        let clock = MutableClock(base)
+        let a = TokenAggregator(pricing: NoPricing(), retentionHours: 6,
+                                idleTimeoutSeconds: 90,
+                                now: { clock.value })
+        return (a, { clock.value = self.base.addingTimeInterval($0 * 60) })
+    }
+
+    private final class MutableClock {
+        var value: Date
+        init(_ v: Date) { value = v }
+    }
+
+    /// 核心回归：一次尖峰不得把量程永久钉住
+    func testRecentPeakDecaysOverTime() {
+        let (a, setNow) = movableAggregator()
+        a.ingest(entry(min: 0, input: 100_000, key: "k1"))
+        a.ingest(entry(min: 1, input: 100_000, key: "k2"))
+        setNow(1)
+        a.recompute()
+        let spike = a.recentPeak
+        XCTAssertGreaterThan(spike, 0)
+
+        // 静置 5 分钟（恰好一个半衰期）后再重算
+        setNow(6)
+        a.recompute()
+        XCTAssertLessThan(a.recentPeak, spike, "峰值必须回落，不能只涨不跌")
+        XCTAssertEqual(a.recentPeak, spike * 0.5, accuracy: spike * 1e-6)
+    }
+
+    /// 长时间静置后峰值收敛到 0，量程回到 100k 底档
+    func testRecentPeakConvergesToZeroWhenIdleLongEnough() {
+        let (a, setNow) = movableAggregator()
+        a.ingest(entry(min: 0, input: 100_000, key: "k1"))
+        a.ingest(entry(min: 1, input: 100_000, key: "k2"))
+        setNow(1)
+        a.recompute()
+        XCTAssertGreaterThan(a.recentPeak, 0)
+
+        setNow(180)          // 静置 3 小时 = 36 个半衰期
+        a.recompute()
+        XCTAssertEqual(a.recentPeak, 0, accuracy: 1e-9)
+    }
+
+    /// 衰减之后仍要能被新的高速率顶上去
+    func testRecentPeakStillRisesAfterDecay() {
+        let (a, setNow) = movableAggregator()
+        a.ingest(entry(min: 0, input: 1_000, key: "k1"))
+        a.ingest(entry(min: 1, input: 1_000, key: "k2"))
+        setNow(1)
+        a.recompute()
+        let small = a.recentPeak
+
+        a.ingest(entry(min: 2, input: 500_000, key: "k3"))
+        setNow(2)
+        a.recompute()
+        XCTAssertGreaterThan(a.recentPeak, small)
+        XCTAssertEqual(a.recentPeak, a.tokensPerMinute, accuracy: 1e-6)
+    }
 }
