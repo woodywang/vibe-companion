@@ -19,6 +19,7 @@ export function ClientManager({ initialClients }: { initialClients: ClientDevice
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function register(e: React.FormEvent) {
     e.preventDefault();
@@ -69,10 +70,17 @@ export function ClientManager({ initialClients }: { initialClients: ClientDevice
   }
 
   async function removeDevice(id: string) {
+    if (deletingId) return;
     if (!confirm("删除该设备将一并清除其历史用量，确认？")) return;
-    const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
-    if (res.ok) setClients((prev) => prev.filter((c) => c.id !== id));
-    else setError("删除失败");
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+      // 404 表示设备已经不存在（例如重复点击/已在别处删除），按成功处理
+      if (res.ok || res.status === 404) setClients((prev) => prev.filter((c) => c.id !== id));
+      else setError("删除失败");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -135,7 +143,13 @@ export function ClientManager({ initialClients }: { initialClients: ClientDevice
               </div>
             </div>
             <div className="flex items-center">
-              <button onClick={() => removeDevice(c.id)} className="mr-2 text-xs text-red-500 hover:underline">删除</button>
+              <button
+                onClick={() => removeDevice(c.id)}
+                disabled={deletingId === c.id}
+                className="mr-2 text-xs text-red-500 hover:underline disabled:opacity-50"
+              >
+                {deletingId === c.id ? "删除中…" : "删除"}
+              </button>
               <span
                 className={`h-2 w-2 rounded-full ${
                   c.lastSeenAt && Date.now() - c.lastSeenAt < 5 * 60_000
