@@ -85,6 +85,17 @@ LCD 小窗实时显示格式化速率：
 
 ## 5. 架构与代码改造
 
+### 当前 main 状态（claude code 重构后）
+
+经核查 main HEAD（`7448f40`），Overlay 仍为 Lottie 方案，claude code 的改动是：
+
+- **`fbcee7f`**：`TokenAggregator` 改用 `effectiveTokens`（= input + output + cacheCreation，排除 cache_read），速率数值更合理（不再天文数字）
+- **`cccdd3d`**：`LottiePetView` 修复加载空白，`LottieAnimation.named(_:bundle:subdirectory:)` 显式指定 `"Animations"` 子目录
+- **新增测试目录** `client/VibeCompanion/Tests/`（7 个 XCTest 文件，`@testable import VibeCompanion` + `@MainActor` 风格）
+- **`FloatingPetContent.formatRate`** 已存在并复用
+
+本次改造基于上述真实状态。
+
 ### 新增：Overlay/SpeedometerView.swift
 
 纯 SwiftUI 视图，负责绘制表盘 + 指针 + 数字窗。
@@ -108,20 +119,23 @@ struct SpeedometerView: View {
 
 ### 改造：FloatingPetPanel.swift / FloatingPetContent
 
-- 删除 `LottiePetView` 引用
-- 替换为 `SpeedometerView(aggregator: aggregator)`
-- idle（< 1 tok/min）指针回 -135°
-- 保持速率气泡徽章（橙色 capsule）
+- 删除 `LottiePetView(...)` 引用与 `import Lottie`
+- 替换为 `SpeedometerView(tokensPerMinute: aggregator.tokensPerMinute)`
+- idle（`< 1` tok/min）指针回 -135°（速度表内部处理，无需 emoji 占位）
+- 保持现有 `formatRate` 速率气泡徽章（橙色 capsule）
+- 删除 `AppConfig.animationSpeed` 调用（速度表内联角度映射）
 
 ### 改造：LottiePetView.swift 与 AppConfig.animationSpeed
 
-- `LottiePetView.swift` 可删除或暂时保留备用（建议删除，避免死代码）
-- `AppConfig.animationSpeed(tokensPerMinute:)` 当前映射 8000→1.0×，可保留用于潜在 future 动画；速度表角度映射单独在 `SpeedometerView` 内计算
+- 删除 `Overlay/LottiePetView.swift`（当前是 `cccdd3d` 修过的 subdirectory 版本）
+- `AppConfig.animationSpeed(tokensPerMinute:)` 不再被引用，可一并删除（其 8000->1.0× 的映射语义已被速度表角度映射取代）
 
-### 资源清理
+### Package.swift 与资源清理
 
-- 删除或忽略 `Resources/Animations/cycling_pet.json` 占位资源
-- 删除 `scripts/generate_cycling_pet.py`（如果此前已创建）
+- `Package.swift` 移除 `lottie-ios` 依赖与 `Lottie` product
+- `resources` 移除 `.copy("../Resources/Animations")`
+- 删除 `client/VibeCompanion/Resources/Animations/cycling_pet.json`（及若存在的 `Resources/` 目录）
+- `scripts/build-app.sh` 若有 Lottie 相关步骤一并清理
 
 ## 6. 错误处理与边界
 
@@ -132,18 +146,30 @@ struct SpeedometerView: View {
 
 ## 7. 测试与验证
 
-- **构建运行**：`scripts/build-app.sh` 构建后运行，观察指针随 token 消耗转动、弹性回摆、idle 回 0。
-- **速率滑块/按钮**：预览 HTML 已可手动拖动验证映射和弹性。
-- **尺寸检查**：140×140 悬浮窗尺寸下刻度、数字、指针清晰可读。
+项目已有 XCTest 测试目录（`client/VibeCompanion/Tests/`，`@testable import VibeCompanion` + `@MainActor` 风格）。新增测试：
+
+- `SpeedometerViewTests.swift`：
+  - 角度映射：0 -> -135°、8000 -> 0°、16000 -> 135°、超限 clamp
+  - idle 阈值：< 1 tok/min 判定
+  - 数字格式化：复用 `formatRate` 逻辑（`<1k` 整数、`<1M` `k`、否则 `M`）
+
+运行时验证：
+
+- `scripts/build-app.sh` 构建运行，观察指针随 token 消耗转动、弹性回摆、idle 回 0
+- 预览 HTML 已可手动拖动验证映射和弹性
+- 140×140 悬浮窗尺寸下刻度、数字、指针清晰可读
 
 ## 8. 交付物清单
 
-1. `client/VibeCompanion/Sources/Overlay/SpeedometerView.swift` —— 纯 SwiftUI 表盘视图
-2. `client/VibeCompanion/Sources/Overlay/FloatingPetPanel.swift` —— 替换 Lottie 为 SpeedometerView
-3. 可选：`client/VibeCompanion/Sources/Overlay/LottiePetView.swift` 删除
-4. 可选：移除 `Resources/Animations/` 目录与 `scripts/generate_cycling_pet.py`（若已存在）
-5. `docs/superpowers/specs/2026-07-25-speedometer-design.md` —— 本设计文档
-6. `docs/superpowers/specs/speedometer-preview.html` —— 评审原型
+1. `client/VibeCompanion/Sources/Overlay/SpeedometerView.swift` -- 纯 SwiftUI 表盘视图
+2. `client/VibeCompanion/Sources/Overlay/FloatingPetPanel.swift` -- `FloatingPetContent` 改用 `SpeedometerView`
+3. `client/VibeCompanion/Sources/Overlay/LottiePetView.swift` -- 删除
+4. `client/VibeCompanion/Tests/SpeedometerViewTests.swift` -- 角度映射/格式化单测
+5. `client/Package.swift` -- 移除 lottie-ios 依赖与 Lottie product、移除 Animations 资源
+6. 删除 `client/VibeCompanion/Resources/Animations/cycling_pet.json`
+7. `client/VibeCompanion/Sources/Core/AppConfig.swift` -- 删除 `animationSpeed`（若无其他引用）
+8. `docs/superpowers/specs/2026-07-25-speedometer-design.md` -- 本设计文档
+9. `docs/superpowers/specs/speedometer-preview.html` -- 评审原型
 
 ## 9. 范围外（YAGNI）
 
