@@ -24,27 +24,21 @@ final class FloatingPetPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// SwiftUI 内容容器：根据速率选择状态并驱动动画
+/// SwiftUI 内容容器：速度表显示 token 消耗速率
 struct FloatingPetContent: View {
     @ObservedObject var aggregator: TokenAggregator
 
     var body: some View {
-        let speed = AppConfig.animationSpeed(tokensPerMinute: aggregator.tokensPerMinute)
-        let isIdle = aggregator.tokensPerMinute < 1
+        let rpm = aggregator.tokensPerMinute
+        let isIdle = speedometerIsIdle(tokensPerMinute: rpm)
 
         VStack(spacing: 2) {
-            if isIdle {
-                // 打盹状态：静态 emoji 占位
-                Text("😴")
-                    .font(.system(size: 64))
-            } else {
-                LottiePetView(animationName: "cycling_pet", speed: speed)
-                    .frame(width: 140, height: 140)
-            }
+            SpeedometerView(tokensPerMinute: rpm)
+                .frame(width: 140, height: 140)
 
-            // 速率小气泡
+            // 速率小气泡（非 idle 时显示）
             if !isIdle {
-                Text(formatRate(aggregator.tokensPerMinute))
+                Text(speedometerFormat(rpm))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
@@ -54,11 +48,5 @@ struct FloatingPetContent: View {
             }
         }
         .frame(width: 160, height: 160)
-    }
-
-    private func formatRate(_ rpm: Double) -> String {
-        if rpm < 1000 { return "\(Int(rpm))/min" }
-        if rpm < 1_000_000 { return String(format: "%.1fk/min", rpm / 1000) }
-        return String(format: "%.2fM/min", rpm / 1_000_000)
     }
 }
