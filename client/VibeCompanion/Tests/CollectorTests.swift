@@ -105,6 +105,58 @@ final class CollectorTests: XCTestCase {
         XCTAssertEqual(got[0].dedupKey, "m1:r1")
     }
 
+    // MARK: 并发安全
+
+    /// 每次 discoverFiles 都多吐一批文件，逼 rescan 反复**写** ownerByFile / contextByFile。
+    /// 计数只在 rescan 所在线程上被触碰，故自身无需同步。
+    private final class GrowingAdapter: AgentAdapter {
+        let id = "growing"
+        let dir: URL
+        private var count = 0
+        init(dir: URL) { self.dir = dir }
+        func discoverFiles() -> [URL] {
+            count = min(count + 4, 120)
+            return (0..<count).map { dir.appendingPathComponent("race-\($0).jsonl") }
+        }
+        func parse(line: String, context: inout ParseContext) -> UsageEntry? {
+            context.stickyModel = line
+            return nil
+        }
+        func timestamp(fromLine line: String) -> Date? { nil }
+    }
+
+    /// rescan（主 run loop）与 handle（tailer 串行队列）并发读写同两个字典。
+    ///
+    /// 无同步时 TSan 必报 data race；同时该用例也守着死锁：rescan 若持锁调用
+    /// `tailer.watch`（内部 `queue.sync`），而 handle 在 tailer 队列上等同一把锁，
+    /// 就会循环等待——届时本用例超时失败而非静默通过。
+    func testConcurrentRescanAndHandleDoNotRace() throws {
+        // 用真实文件，让 watch 真的建起 DispatchSource 并同步回调 handle
+        for i in 0..<120 { _ = try write("x\n", name: "race-\(i).jsonl") }
+
+        let c = Collector(adapters: [GrowingAdapter(dir: dir)],
+                          backfillWindowHours: 6, now: { self.now })
+        c.start()                       // 首轮 rescan，字典里已有前 4 个文件
+        let seeded = (0..<4).map { dir.appendingPathComponent("race-\($0).jsonl") }
+
+        let done = expectation(description: "concurrent churn finished")
+        done.expectedFulfillmentCount = 2
+        let rescans = DispatchQueue(label: "test.rescan")
+        let handles = DispatchQueue(label: "test.handle")
+
+        rescans.async {
+            for _ in 0..<40 { c.rescan() }
+            done.fulfill()
+        }
+        handles.async {
+            for i in 0..<4000 { c.handle(url: seeded[i % seeded.count], line: "line-\(i)") }
+            done.fulfill()
+        }
+
+        wait(for: [done], timeout: 30)
+        c.stop()
+    }
+
     /// 包装器：复用真实 adapter 的解析，但固定文件列表
     private struct FixedFileAdapter: AgentAdapter {
         let inner: AgentAdapter

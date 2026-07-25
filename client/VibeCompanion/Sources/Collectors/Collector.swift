@@ -13,9 +13,18 @@ final class Collector {
     private let now: () -> Date
 
     private let tailer = JsonlTailer()
-    /// 文件 -> 负责它的 adapter
+    /// 保护 `ownerByFile` / `contextByFile`。
+    ///
+    /// 这两个字典被两条线程触碰：`rescan()` 跑在主 run loop 的 Timer 上，
+    /// `handle(url:line:)` 跑在 `JsonlTailer` 的私有串行队列上。
+    ///
+    /// **不得**持锁调用 `tailer.watch(_:startAtBeginning:)` 或 `adapter.discoverFiles()`：
+    /// 前者内部 `queue.sync` 进 tailer 队列，而 handle 正是从那条队列上来抢这把锁，
+    /// 持锁调用即构成循环等待死锁；后者是文件系统 I/O，持锁会长时间占住临界区。
+    private let mapsLock = NSLock()
+    /// 文件 -> 负责它的 adapter（由 `mapsLock` 保护）
     private var ownerByFile: [URL: AgentAdapter] = [:]
-    /// 文件 -> 解析上下文（Codex 的 sticky model 按文件隔离）
+    /// 文件 -> 解析上下文（Codex 的 sticky model 按文件隔离；由 `mapsLock` 保护）
     private var contextByFile: [URL: ParseContext] = [:]
     private var rescanTimer: Timer?
 
@@ -56,23 +65,46 @@ final class Collector {
         return now().timeIntervalSince(ts) <= backfillWindow
     }
 
-    // MARK: - private
+    // MARK: - internal
 
-    private func rescan() {
+    /// internal（而非 private）以便测试直接并发驱动 rescan 与 handle。
+    func rescan() {
         for adapter in adapters {
-            for file in adapter.discoverFiles() where ownerByFile[file] == nil {
-                ownerByFile[file] = adapter
-                contextByFile[file] = ParseContext()
+            // discoverFiles 是文件系统 I/O：锁外调用
+            for file in adapter.discoverFiles() {
+                // 先登记再 watch：watch 会同步触发首次读取 -> onLine -> handle，
+                // 那时字典里必须已有该 url，否则首批数据全被 handle 的 guard 丢掉。
+                mapsLock.lock()
+                let isNew = ownerByFile[file] == nil
+                if isNew {
+                    ownerByFile[file] = adapter
+                    contextByFile[file] = ParseContext()
+                }
+                mapsLock.unlock()
+                guard isNew else { continue }
+                // 锁外：watch 内部 queue.sync 进 tailer 队列，持锁调用会死锁
                 tailer.watch(file, startAtBeginning: shouldBackfill(file, adapter: adapter))
             }
         }
     }
 
-    private func handle(url: URL, line: String) {
-        guard let adapter = ownerByFile[url] else { return }
+    /// internal（而非 private）以便测试直接并发驱动 rescan 与 handle。
+    func handle(url: URL, line: String) {
+        // 锁内取出（ParseContext 是 struct，取出即拷贝）
+        mapsLock.lock()
+        let owner = ownerByFile[url]
         var context = contextByFile[url] ?? ParseContext()
+        mapsLock.unlock()
+
+        guard let adapter = owner else { return }
+        // 锁外解析：解析可能不便宜，且不该在临界区里回调外部代码
         let entry = adapter.parse(line: line, context: &context)
+
+        // 锁内写回
+        mapsLock.lock()
         contextByFile[url] = context
+        mapsLock.unlock()
+
         if let entry { onEntry?(entry) }
     }
 }
