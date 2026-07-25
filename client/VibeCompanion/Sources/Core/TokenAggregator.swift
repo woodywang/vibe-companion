@@ -42,6 +42,17 @@ final class TokenAggregator: ObservableObject {
         recompute(now: t)
     }
 
+    /// 注入一条 adapter 解析出的用量记录。
+    ///
+    /// 过渡实现：Collector 已切到 `UsageEntry`，但本类的窗口口径仍以 `UsageEvent`
+    /// 为准，故此处只更新 `todayTotal`。Task 6 重写本类后本方法即为唯一入口。
+    func ingest(_ entry: UsageEntry) {
+        rolloverIfNeeded()
+        if TokenAggregator.dayKey(entry.timestamp) == currentDayKey {
+            todayTotal += entry.counts.total
+        }
+    }
+
     private func evict() {
         rolloverIfNeeded()
         let t = now()

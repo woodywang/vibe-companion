@@ -1,157 +1,78 @@
 import Foundation
 
-/// 采集器：监听 Claude Code 与 Codex CLI 的 JSONL 会话文件，
-/// 解析 token 用量事件并产出 UsageEvent。
+/// 采集器：调度各 agent 适配器，把它们的 session 文件接到 JsonlTailer 上，
+/// 并决定每个文件是否需要回扫历史。
+///
+/// 解析细节全部下沉到 `AgentAdapter` 实现，本类不认识任何 JSONL 格式。
 final class Collector {
-    /// 采集到一条事件时回调
-    var onEvent: ((UsageEvent) -> Void)?
+    /// 解析出一条用量记录时回调。
+    var onEntry: ((UsageEntry) -> Void)?
+
+    private let adapters: [AgentAdapter]
+    private let backfillWindow: TimeInterval
+    private let now: () -> Date
 
     private let tailer = JsonlTailer()
-    private var watchedFiles: Set<URL> = []
+    /// 文件 -> 负责它的 adapter
+    private var ownerByFile: [URL: AgentAdapter] = [:]
+    /// 文件 -> 解析上下文（Codex 的 sticky model 按文件隔离）
+    private var contextByFile: [URL: ParseContext] = [:]
+    private var rescanTimer: Timer?
+
+    init(adapters: [AgentAdapter] = [ClaudeAdapter(), CodexAdapter()],
+         backfillWindowHours: Double = 6,
+         now: @escaping () -> Date = { Date() }) {
+        self.adapters = adapters
+        self.backfillWindow = backfillWindowHours * 3600
+        self.now = now
+    }
 
     func start() {
         tailer.onLine = { [weak self] url, line in
-            self?.parse(url: url, line: line)
+            self?.handle(url: url, line: line)
         }
         rescan()
         // 每 10s 重新扫描，捕获新创建的 session 文件
-        Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+        rescanTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.rescan()
         }
     }
 
     func stop() {
+        rescanTimer?.invalidate()
+        rescanTimer = nil
         tailer.stopAll()
     }
 
+    /// 该文件是否需要从头回扫。
+    ///
+    /// 判据是文件**末条记录**的时间戳是否落在回扫窗口内——用 `TailProbe`
+    /// 只读 8 KB 尾部即可判定，无需读全文。
+    /// 探测或解析的任何一步失败都返回 true：宁可多读，不可漏数据。
+    func shouldBackfill(_ url: URL, adapter: AgentAdapter) -> Bool {
+        guard let line = TailProbe.lastCompleteLine(of: url),
+              let ts = adapter.timestamp(fromLine: line)
+        else { return true }
+        return now().timeIntervalSince(ts) <= backfillWindow
+    }
+
+    // MARK: - private
+
     private func rescan() {
-        let claude = DataSource.claudeFiles()
-        let codex = DataSource.codexFiles()
-        for f in claude + codex {
-            if !watchedFiles.contains(f) {
-                watchedFiles.insert(f)
-                tailer.watch(f, startAtBeginning: false)
+        for adapter in adapters {
+            for file in adapter.discoverFiles() where ownerByFile[file] == nil {
+                ownerByFile[file] = adapter
+                contextByFile[file] = ParseContext()
+                tailer.watch(file, startAtBeginning: shouldBackfill(file, adapter: adapter))
             }
         }
     }
 
-    private func parse(url: URL, line: String) {
-        guard let data = line.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return
-        }
-
-        // 判断来源：路径含 .claude -> Claude；含 .codex -> Codex
-        if url.path.contains("/.claude/") {
-            if let ev = ClaudeParser.parse(obj) {
-                onEvent?(ev)
-            }
-        } else if url.path.contains("/.codex/") {
-            if let ev = CodexParser.parse(obj) {
-                onEvent?(ev)
-            }
-        }
-    }
-}
-
-// MARK: - Claude Code 解析
-
-enum ClaudeParser {
-    /// Claude: type=="assistant" 行的 message.usage 含 token 字段
-    static func parse(_ obj: [String: Any]) -> UsageEvent? {
-        guard obj["type"] as? String == "assistant" else { return nil }
-        guard let message = obj["message"] as? [String: Any],
-              let usage = message["usage"] as? [String: Any] else {
-            return nil
-        }
-
-        let uuid = obj["uuid"] as? String ?? UUID().uuidString
-        let sessionId = obj["sessionId"] as? String
-        let model = message["model"] as? String
-
-        // timestamp 可能是 ISO 字符串
-        let recordedAt: Int64
-        if let ts = obj["timestamp"] as? String,
-           let date = DateParsing.parseISO8601(ts) {
-            recordedAt = Int64(date.timeIntervalSince1970 * 1000)
-        } else {
-            recordedAt = Int64(Date().timeIntervalSince1970 * 1000)
-        }
-
-        return UsageEvent(
-            sourceUuid: uuid,
-            agent: "claude",
-            sessionId: sessionId,
-            model: model,
-            inputTokens: usage["input_tokens"] as? Int ?? 0,
-            outputTokens: usage["output_tokens"] as? Int ?? 0,
-            cacheCreationTokens: usage["cache_creation_input_tokens"] as? Int ?? 0,
-            cacheReadTokens: usage["cache_read_input_tokens"] as? Int ?? 0,
-            reasoningTokens: 0,
-            totalTokens: computeTotalClaude(usage),
-            recordedAt: recordedAt
-        )
-    }
-
-    private static func computeTotalClaude(_ usage: [String: Any]) -> Int {
-        let input = usage["input_tokens"] as? Int ?? 0
-        let output = usage["output_tokens"] as? Int ?? 0
-        let cc = usage["cache_creation_input_tokens"] as? Int ?? 0
-        let cr = usage["cache_read_input_tokens"] as? Int ?? 0
-        return input + output + cc + cr
-    }
-}
-
-// MARK: - Codex CLI 解析
-
-enum CodexParser {
-    /// Codex: payload.type=="token_count" 行的 payload.info.last_token_usage
-    static func parse(_ obj: [String: Any]) -> UsageEvent? {
-        guard let payload = obj["payload"] as? [String: Any],
-              payload["type"] as? String == "token_count" else {
-            return nil
-        }
-        guard let info = payload["info"] as? [String: Any],
-              let usage = info["last_token_usage"] as? [String: Any] else {
-            return nil
-        }
-
-        let sessionId = (obj["payload"] as? [String: Any])?["session_id"] as? String
-            ?? payload["session_id"] as? String
-        let model = info["model"] as? String
-
-        // Codex 时间戳：顶层 timestamp（ISO 字符串或 ms 数字）
-        let recordedAt: Int64
-        if let ts = obj["timestamp"] as? String,
-           let date = DateParsing.parseISO8601(ts) {
-            recordedAt = Int64(date.timeIntervalSince1970 * 1000)
-        } else if let ts = obj["timestamp"] as? NSNumber {
-            recordedAt = ts.int64Value
-        } else {
-            recordedAt = Int64(Date().timeIntervalSince1970 * 1000)
-        }
-
-        let input = usage["input_tokens"] as? Int ?? 0
-        let cached = usage["cached_input_tokens"] as? Int ?? 0
-        let output = usage["output_tokens"] as? Int ?? 0
-        let reasoning = usage["reasoning_output_tokens"] as? Int ?? 0
-        let total = usage["total_tokens"] as? Int ?? (input + cached + output + reasoning)
-
-        // 去重键：sessionId + 时间戳
-        let dedup = "\(sessionId ?? UUID().uuidString)-\(recordedAt)"
-
-        return UsageEvent(
-            sourceUuid: dedup,
-            agent: "codex",
-            sessionId: sessionId,
-            model: model,
-            inputTokens: input,
-            outputTokens: output,
-            cacheCreationTokens: 0,
-            cacheReadTokens: cached,
-            reasoningTokens: reasoning,
-            totalTokens: total,
-            recordedAt: recordedAt
-        )
+    private func handle(url: URL, line: String) {
+        guard let adapter = ownerByFile[url] else { return }
+        var context = contextByFile[url] ?? ParseContext()
+        let entry = adapter.parse(line: line, context: &context)
+        contextByFile[url] = context
+        if let entry { onEntry?(entry) }
     }
 }

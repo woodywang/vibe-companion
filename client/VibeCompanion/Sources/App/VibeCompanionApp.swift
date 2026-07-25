@@ -54,7 +54,7 @@ final class AppCoordinator: ObservableObject {
 
         // 采集器 -> 聚合器 + 存储
         let c = Collector()
-        c.onEvent = { [weak self] event in
+        c.onEntry = { [weak self] event in
             Task { @MainActor in
                 self?.aggregator.ingest(event)
                 try? self?.store?.enqueue(event)
