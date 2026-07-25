@@ -97,6 +97,12 @@ final class AppCoordinator: ObservableObject {
         panel = p
     }
 
+    /// 保存新 token 后调用：解除认证阻断并恢复自动上传（重启计时器 + 立即触发一次 flush）。
+    func resumeUploads() {
+        uploader?.resetAuthBlock()
+        uploader?.start()
+    }
+
     /// 菜单栏图标：随速率档位变化
     var menuBarIcon: Image {
         switch aggregator.tokensPerMinute {

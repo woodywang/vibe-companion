@@ -96,29 +96,40 @@ final class Uploader {
         let attempts = pending.map { $0.attempts }.max() ?? 0
         upload(events: events) { [weak self] result in
             guard let self else { return }
-            do {
-                switch result {
-                case .success(let resp):
-                    try self.store.markUploaded(rowIds: rowIds)
-                    self.nextRetryAt = nil
-                    self.onStatusChange?(.success(count: resp.inserted))
-                case .failure(let err):
-                    try? self.store.markFailed(rowIds: rowIds)
-                    let nsErr = err as NSError
-                    if nsErr.domain == "vc.auth" {
-                        self.authBlocked = true
-                        self.timer?.invalidate()
-                        self.timer = nil
-                        self.onStatusChange?(.failed(message: "认证失败，请重新注册"))
-                    } else {
-                        let backoff = min(pow(2, Double(attempts)) * 5, 300)
-                        self.nextRetryAt = self.now().addingTimeInterval(backoff)
-                        self.onStatusChange?(.failed(message: err.localizedDescription))
+            self.onMain {
+                do {
+                    switch result {
+                    case .success(let resp):
+                        try self.store.markUploaded(rowIds: rowIds)
+                        self.nextRetryAt = nil
+                        self.onStatusChange?(.success(count: resp.inserted))
+                    case .failure(let err):
+                        try? self.store.markFailed(rowIds: rowIds)
+                        let nsErr = err as NSError
+                        if nsErr.domain == "vc.auth" {
+                            self.authBlocked = true
+                            self.timer?.invalidate()
+                            self.timer = nil
+                            self.onStatusChange?(.failed(message: "认证失败，请重新注册"))
+                        } else {
+                            let backoff = min(pow(2, Double(attempts)) * 5, 300)
+                            self.nextRetryAt = self.now().addingTimeInterval(backoff)
+                            self.onStatusChange?(.failed(message: err.localizedDescription))
+                        }
                     }
+                } catch {
+                    self.onStatusChange?(.failed(message: "更新本地状态失败"))
                 }
-            } catch {
-                self.onStatusChange?(.failed(message: "更新本地状态失败"))
             }
+        }
+    }
+
+    /// 把闭包送到主线程执行；若当前已在主线程则直接同步执行（便于测试用同步 Transport 时保持确定性）。
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 

@@ -25,4 +25,18 @@ final class UploaderTests: XCTestCase {
         XCTAssertTrue(up.authBlocked)
         XCTAssertEqual(try store.pendingCount(), 1)   // data preserved
     }
+
+    func testTransientFailureBacksOffWithoutAuthBlock() throws {
+        Settings.shared.clientToken = "vc_test"; Settings.shared.isPaused = false
+        let store = try UsageStore(path: NSTemporaryDirectory() + "up-\(UUID().uuidString).db")
+        try store.enqueue(UsageEvent(sourceUuid: "u2", agent: "claude", sessionId: nil, model: nil,
+            inputTokens: 1, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0,
+            reasoningTokens: 0, totalTokens: 1, recordedAt: 1))
+        let t = FakeTransport(); t.status = 500
+        let up = Uploader(store: store, transport: t, now: { Date() })
+        up.flush()
+        XCTAssertFalse(up.authBlocked)
+        XCTAssertNotNil(up.nextRetryAt)
+        XCTAssertEqual(try store.pendingCount(), 1)   // data preserved
+    }
 }

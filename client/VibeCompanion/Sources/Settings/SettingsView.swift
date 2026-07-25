@@ -77,7 +77,8 @@ struct SettingsView: View {
         Settings.shared.clientToken = trimmed
         message = "已保存！开始上传。"; isError = false
         tokenInput = ""
-        // 立即触发一次上传
+        // 解除可能存在的认证阻断，并立即触发一次上传
+        coordinator.resumeUploads()
         coordinator.objectWillChange.send()
     }
 }
