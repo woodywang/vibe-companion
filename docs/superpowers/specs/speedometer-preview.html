@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibe Companion · 速度表悬浮动画预览</title>
+<style>
+  :root{ --bg:#f5f6f8; --card:#fff; --muted:#8a8f98; --line:#e6e8ec; --ink:#2D2D2D; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"SF Pro","PingFang SC",sans-serif;background:var(--bg);color:var(--ink);line-height:1.6}
+  .wrap{max-width:900px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:34px 0 6px;padding-top:16px;border-top:1px solid var(--line)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:14px}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .demo{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .frame{border-radius:12px;position:relative;background:linear-gradient(#2a2c31,#1b1d21)}
+  .frame .tag{position:absolute;top:6px;left:8px;font-size:10px;color:#9aa0a8}
+  .cap{font-size:12px;color:var(--muted);text-align:center;max-width:190px}
+  .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 14px;font-size:13px}
+  .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .seg{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+  table{font-size:12.5px;border-collapse:collapse;width:100%;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left}
+  th{background:#fafbfc}
+  input[type=range]{width:300px}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted)}
+  svg{display:block}
+  .note{font-size:12.5px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🚗 Vibe Companion · 速度表悬浮动画预览</h1>
+  <p class="sub">风格：<b>经典黑底白针 · 老式汽车速度表</b>。圆形表盘 + 白色刻度/数字 + 弹性指针 + 红线区 + 数字显示窗。纯 SwiftUI 绘制方案。</p>
+
+  <!-- 1. 表盘造型 -->
+  <h2>1 · 表盘造型设计</h2>
+  <p class="sub">深色圆形表盘 + 金属外环 + 白色刻度与数字 + 红色指针。右图为 140×140 实际悬浮窗显示尺寸。</p>
+  <div class="card"><div class="row">
+    <div class="demo">
+      <div class="frame" style="width:230px;height:230px"><span class="tag">设计稿</span>
+        <svg width="230" height="230" viewBox="0 0 200 200" class="gauge" data-val="8000"></svg>
+      </div>
+      <div class="cap">表盘造型（指针指在 8k）</div>
+    </div>
+    <div class="demo">
+      <div class="frame" style="width:140px;height:140px"><span class="tag">140×140</span>
+        <svg width="140" height="140" viewBox="0 0 200 200" class="gauge" data-val="8000"></svg>
+      </div>
+      <div class="cap">实际悬浮窗尺寸</div>
+    </div>
+    <div style="flex:1;min-width:230px">
+      <table>
+        <tr><th>元素</th><th>样式</th></tr>
+        <tr><td>外环</td><td>金属渐变圆环（银灰）</td></tr>
+        <tr><td>表盘</td><td>深黑径向渐变（#1b1d21→#2a2c31）</td></tr>
+        <tr><td>刻度</td><td>白色，主刻度长/副刻度短，约 270° 弧形</td></tr>
+        <tr><td>数字</td><td>白色 0 / 4k / 8k / 12k / 16k</td></tr>
+        <tr><td>红线区</td><td>12k→16k 红色弧段（超速区）</td></tr>
+        <tr><td>指针</td><td>红色、中心轴 + 尖端，弹性缓动</td></tr>
+        <tr><td>数字窗</td><td>表盘下方 LCD 风格显示确切速率</td></tr>
+      </table>
+    </div>
+  </div></div>
+
+  <!-- 2. 弹性指针 + 速率映射 -->
+  <h2>2 · 弹性指针 + 速率映射</h2>
+  <p class="sub">拖动滑块改变 token 速率，观察指针带<b>过冲回摆</b>地缓动到目标角度（弹簧物理）。指针角度 = 速率映射。</p>
+  <div class="card"><div class="row">
+    <div class="demo">
+      <div class="frame" style="width:250px;height:250px"><span class="tag">交互演示</span>
+        <svg width="250" height="250" viewBox="0 0 200 200" class="gauge" id="mainGauge" data-val="0"></svg>
+      </div>
+      <div class="cap">拖动滑块 → 指针弹性转动</div>
+    </div>
+    <div style="flex:1;min-width:280px">
+      <label class="mono">token 速率</label><br>
+      <input type="range" id="speed" min="0" max="16000" value="0" step="100">
+      <div class="mono" id="speedInfo">0 tok/min → 0°</div>
+      <div class="seg">
+        <button class="btn" data-v="0">0</button>
+        <button class="btn" data-v="4000">4k</button>
+        <button class="btn" data-v="8000">8k</button>
+        <button class="btn" data-v="12000">12k</button>
+        <button class="btn" data-v="16000">16k⚡</button>
+      </div>
+      <table>
+        <tr><th>映射</th><th>值</th></tr>
+        <tr><td>0 tok/min</td><td>最左（-135°）</td></tr>
+        <tr><td>8000 tok/min</td><td>正上（0°）= 1.0×</td></tr>
+        <tr><td>16000 tok/min</td><td>最右（+135°）红线区</td></tr>
+        <tr><td>弹性</td><td>spring：过冲 + 阻尼回摆</td></tr>
+      </table>
+      <div class="note">SwiftUI 用 <span class="mono">.rotationEffect</span> + <span class="mono">.animation(.spring(response:dampingFraction:))</span> 实现弹性，无需关键帧。</div>
+    </div>
+  </div></div>
+
+  <!-- 3. 状态 -->
+  <h2>3 · 状态展示</h2>
+  <p class="sub">idle（指针回 0）、正常骑行、高速（进入红线区）三态。纯 SwiftUI 下无需 markers，指针角度即状态。</p>
+  <div class="card"><div class="row">
+    <div class="demo"><div class="frame" style="width:160px;height:160px"><span class="tag">idle · 0 tok</span>
+      <svg width="160" height="160" viewBox="0 0 200 200" class="gauge" data-val="0"></svg></div>
+      <div class="cap">空闲：指针回 0</div></div>
+    <div class="demo"><div class="frame" style="width:160px;height:160px"><span class="tag">pedal · 8k</span>
+      <svg width="160" height="160" viewBox="0 0 200 200" class="gauge" data-val="8000"></svg></div>
+      <div class="cap">正常：指针中段</div></div>
+    <div class="demo"><div class="frame" style="width:160px;height:160px"><span class="tag">boost · 15k</span>
+      <svg width="160" height="160" viewBox="0 0 200 200" class="gauge" data-val="15000"></svg></div>
+      <div class="cap">高速：指针入红线区</div></div>
+  </div></div>
+
+  <p class="note" style="margin-top:22px">📌 本页为评审原型（SVG+JS 模拟弹簧），最终为 <b>纯 SwiftUI</b> 绘制的 <span class="mono">SpeedometerView</span>，替换现有 Lottie 方案。确认造型后进入实现计划。</p>
+</div>
+
+<script>
+const NS='http://www.w3.org/2000/svg';
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+
+// 角度映射：0 tok → -135°，16000 tok → +135°（270° 弧形表盘）
+const MAXV=16000, AMIN=-135, AMAX=135;
+function valToAngle(v){v=Math.max(0,Math.min(MAXV,v));return AMIN+(v/MAXV)*(AMAX-AMIN);}
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+
+// 构建速度表。返回 {needle} 可动指针组。
+function buildGauge(svg){
+  const cx=100,cy=100;
+  // defs：渐变
+  const defs=el('defs',{},svg);
+  const dg=el('radialGradient',{id:'dial'+Math.random().toString(36).slice(2),cx:'50%',cy:'42%',r:'65%'},defs);
+  el('stop',{offset:'0%','stop-color':'#33363c'},dg); el('stop',{offset:'100%','stop-color':'#17191d'},dg);
+  const mg=el('linearGradient',{id:'rim'+Math.random().toString(36).slice(2),x1:0,y1:0,x2:0,y2:1},defs);
+  el('stop',{offset:'0%','stop-color':'#e8eaee'},mg); el('stop',{offset:'50%','stop-color':'#9aa0a8'},mg); el('stop',{offset:'100%','stop-color':'#5b6068'},mg);
+  const dialId=dg.id, rimId=mg.id;
+  // 金属外环
+  el('circle',{cx,cy,r:96,fill:`url(#${rimId})`},svg);
+  el('circle',{cx,cy,r:88,fill:'#0c0d10'},svg);
+  // 表盘
+  el('circle',{cx,cy,r:82,fill:`url(#${dialId})`},svg);
+  // 红线区（12k→16k 弧段）
+  const a0=valToAngle(12000),a1=valToAngle(16000);
+  const [rx0,ry0]=polar(cx,cy,74,a0),[rx1,ry1]=polar(cx,cy,74,a1);
+  el('path',{d:`M ${rx0} ${ry0} A 74 74 0 0 1 ${rx1} ${ry1}`,fill:'none',stroke:'#e5484d','stroke-width':7,'stroke-linecap':'round'},svg);
+  // 刻度
+  const ticks=el('g',{stroke:'#f2f4f7','stroke-linecap':'round'},svg);
+  const MAJ=[0,4000,8000,12000,16000];
+  for(let v=0;v<=16000;v+=1000){
+    const ang=valToAngle(v), maj=MAJ.includes(v);
+    const [x1,y1]=polar(cx,cy,maj?60:72,ang),[x2,y2]=polar(cx,cy,78,ang);
+    el('line',{x1,y1,x2,y2,'stroke-width':maj?4:1.5,opacity:maj?1:0.55},ticks);
+  }
+  // 数字：略收半径避开刻度，0/16k 外移让出 LCD 区
+  const nums=el('g',{fill:'#f2f4f7','font-size':12,'font-weight':600,'text-anchor':'middle','dominant-baseline':'middle','font-family':'ui-monospace,Menlo,monospace'},svg);
+  MAJ.forEach(v=>{const ang=valToAngle(v);
+    const isEnd=(v===0||v===16000);            // 端点数字外移，避开底部 LCD
+    const [x,y]=polar(cx,cy,isEnd?54:50,ang);
+    el('text',{x,y:isEnd?y-2:y},nums).textContent=v>=1000?(v/1000)+'k':v;});
+  // 中心标题
+  el('text',{x:cx,y:cy+24,fill:'#8a8f98','font-size':9,'text-anchor':'middle','letter-spacing':1},svg).textContent='TOK/MIN';
+  // 数字显示窗（LCD）：下移到底部空旷区，避开 0/16k 刻度数字
+  const lcd=el('g',{},svg);
+  el('rect',{x:cx-27,y:cy+40,width:54,height:18,rx:3,fill:'#0a0c0e',stroke:'#3a3d42','stroke-width':1},lcd);
+  const lcdText=el('text',{x:cx,y:cy+49,fill:'#7ef0c1','font-size':11,'text-anchor':'middle','font-family':'ui-monospace,Menlo,monospace','font-weight':600},lcd);
+  // 指针（中心在表盘中心）
+  const needle=el('g',{transform:`translate(${cx} ${cy})`},svg);
+  // 针体：从中心向后小尾 + 向前长尖
+  el('path',{d:'M -3 12 L 0 -60 L 3 12 Z',fill:'#e5484d'},needle);
+  el('line',{x1:0,y1:8,x2:0,y2:-58,stroke:'#ff6b6f','stroke-width':1.5},needle);
+  // 中心轴帽
+  el('circle',{cx,cy,r:8,fill:'#c7ccd4',stroke:'#5b6068','stroke-width':2},svg);
+  el('circle',{cx,cy,r:3,fill:'#3a3d42'},svg);
+  return {needle,cx,cy,lcdText};
+}
+
+/* 弹簧物理：阻尼谐振子，指针角度当前值 curr 向目标 target 缓动（带过冲回摆） */
+function springTo(gauge,targetAngle,onDone){
+  if(gauge._raf)cancelAnimationFrame(gauge._raf);
+  let x=gauge._ang!==undefined?gauge._ang:targetAngle, v=0;
+  const K=0.08, D=0.82;             // 刚度 / 阻尼（D<1 → 过冲）
+  function step(){
+    const F=(targetAngle-x)*K; v=(v+F)*D; x+=v;
+    gauge._ang=x;
+    gauge.needle.setAttribute('transform',`translate(${gauge.cx} ${gauge.cy}) rotate(${x})`);
+    if(Math.abs(targetAngle-x)>0.05||Math.abs(v)>0.05){gauge._raf=requestAnimationFrame(step);}
+    else{gauge.needle.setAttribute('transform',`translate(${gauge.cx} ${gauge.cy}) rotate(${targetAngle})`);gauge._ang=targetAngle;if(onDone)onDone();}
+  }
+  step();
+}
+function fmt(v){return v>=1000?(v/1000).toFixed(v%1000?1:0)+'k':(''+v);}
+
+/* 初始化所有静态表盘（指针直接到位） */
+document.querySelectorAll('svg.gauge').forEach(svg=>{
+  const g=buildGauge(svg); svg._g=g;
+  const v=+svg.dataset.val||0, ang=valToAngle(v);
+  g._ang=ang; g.needle.setAttribute('transform',`translate(${g.cx} ${g.cy}) rotate(${ang})`);
+  g.lcdText.textContent=fmt(v);
+});
+
+/* 主演示：弹性指针 */
+const main=document.getElementById('mainGauge'), mg=main._g;
+const slider=document.getElementById('speed'), info=document.getElementById('speedInfo');
+function setSpeed(v){
+  slider.value=v;
+  info.textContent=`${v} tok/min → ${valToAngle(v).toFixed(0)}°`;
+  mg.lcdText.textContent=fmt(v);
+  springTo(mg,valToAngle(v));
+}
+slider.oninput=()=>setSpeed(+slider.value);
+document.querySelectorAll('.seg .btn').forEach(b=>b.onclick=()=>setSpeed(+b.dataset.v));
+setSpeed(8000);
+</script>
+</body>
+</html>
