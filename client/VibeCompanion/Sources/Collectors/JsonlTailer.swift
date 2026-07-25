@@ -20,7 +20,8 @@ enum LineSplitter {
 }
 
 /// 监听 JSONL 文件增长，自维护 byte offset 游标。
-/// 启动时定位到 EOF（不回溯历史），之后用 DispatchSource 监听写入事件。
+/// `watch(_:startAtBeginning:)` 决定首次定位到文件头还是 EOF——
+/// 回扫与实时尾随因此共用同一条读取路径，中间没有漏数据的窗口。
 final class JsonlTailer {
     /// 读到一行完整 JSON 时回调
     var onLine: ((URL, String) -> Void)?
@@ -32,11 +33,13 @@ final class JsonlTailer {
     private var partials: [URL: Data] = [:]
     private let queue = DispatchQueue(label: "vibe.tailer")
 
-    /// 开始监听一个文件。若 offset 未记录，定位到 EOF。
-    func watch(_ url: URL) {
+    /// 开始监听一个文件。
+    /// - Parameter startAtBeginning: true 表示从文件头读起（回扫历史），
+    ///   false 表示定位到 EOF（只看后续新增）。
+    func watch(_ url: URL, startAtBeginning: Bool) {
         queue.sync {
             guard descriptors[url] == nil else { return }
-            startWatching(url)
+            startWatching(url, startAtBeginning: startAtBeginning)
         }
     }
 
@@ -50,17 +53,20 @@ final class JsonlTailer {
         }
     }
 
-    private func startWatching(_ url: URL) {
+    private func startWatching(_ url: URL, startAtBeginning: Bool) {
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { return }
 
         descriptors[url] = fd
 
-        // 首次：定位到 EOF
+        // 首次定位：回扫从 0 起，否则跳到 EOF
         if offsets[url] == nil {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
-                let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-                offsets[url] = size
+            if startAtBeginning {
+                offsets[url] = 0
+            } else if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
+                offsets[url] = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+            } else {
+                offsets[url] = 0
             }
         }
 
@@ -96,27 +102,34 @@ final class JsonlTailer {
             offset = 0
             partials[url] = Data()
         }
-
-        let toRead = currentSize - offset
-        guard toRead > 0 else { return }
+        guard currentSize > offset else { return }
 
         lseek(fd, offset, SEEK_SET)
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(toRead))
-        defer { buffer.deallocate() }
-        let read = read(fd, buffer, Int(toRead))
-        guard read > 0 else { return }
 
-        let data = Data(bytes: buffer, count: Int(read))
-        offsets[url] = currentSize
+        // 分块循环读到末尾。
+        // 单次 read(2) 不保证返回请求的全部字节——回扫时一次要读 MB 级数据，
+        // 若按单次读取量之外的值推进 offset 会静默丢数据。
+        let chunkSize = 256 * 1024
+        var buffer = [UInt8](repeating: 0, count: chunkSize)
+        var pending = partials[url] ?? Data()
+        var emitted: [String] = []
 
-        // 按字节拆分行，跨读取保留半行/被截断的多字节字符
-        let combined = (partials[url] ?? Data()) + data
-        let (lines, rest) = LineSplitter.split(combined)
-        partials[url] = rest
-        for line in lines {
-            if let text = String(data: line, encoding: .utf8) {
-                onLine?(url, text)
+        while offset < currentSize {
+            let want = Int(min(Int64(chunkSize), currentSize - offset))
+            let got = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, want) }
+            guard got > 0 else { break }
+            offset += Int64(got)
+
+            pending.append(contentsOf: buffer[0..<got])
+            let (lines, rest) = LineSplitter.split(pending)
+            pending = rest
+            for line in lines {
+                if let text = String(data: line, encoding: .utf8) { emitted.append(text) }
             }
         }
+
+        offsets[url] = offset
+        partials[url] = pending
+        for text in emitted { onLine?(url, text) }
     }
 }

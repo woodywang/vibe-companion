@@ -30,7 +30,7 @@ final class Collector {
         for f in claude + codex {
             if !watchedFiles.contains(f) {
                 watchedFiles.insert(f)
-                tailer.watch(f)
+                tailer.watch(f, startAtBeginning: false)
             }
         }
     }
