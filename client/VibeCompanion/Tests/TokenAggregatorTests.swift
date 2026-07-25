@@ -4,7 +4,18 @@ import XCTest
 @MainActor
 final class TokenAggregatorTests: XCTestCase {
 
-    private let base = Date(timeIntervalSince1970: 1_785_000_000)
+    /// 基准时刻锚定在**本机时区**的当日 01:00。
+    ///
+    /// `TokenAggregator.dayKey` 按 `Calendar.current` 切分"今日"——这对用户是
+    /// 正确行为，不该为迁就测试而改。但用例里最长的一条要跨 base+10h，
+    /// 若 base 是个裸时间戳（如 1785000000，UTC+8 下 01:20、UTC 下则是前一天
+    /// 17:20），在西半球时区就会跨本地日而假失败。锚到本地日首 +1h 后，
+    /// base..base+11h 必落在同一本地日（任何时区的一天都不短于 23h），
+    /// 于是断言与运行机器的时区无关。
+    private let base: Date = {
+        let anchor = Date(timeIntervalSince1970: 1_785_000_000)
+        return Calendar.current.startOfDay(for: anchor).addingTimeInterval(3600)
+    }()
 
     private struct NoPricing: PricingSource {
         func pricing(for model: String) -> ModelPricing? { nil }
