@@ -9,6 +9,7 @@ export interface DailyTotal {
   cacheReadTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  weightedTokens: number;
   costUsd: number;
 }
 
@@ -23,6 +24,7 @@ export async function dailyTotalsForUser(userId: string, fromMs: number, toMs: n
       cacheReadTokens: sql<number>`SUM(${schema.usageEvents.cacheReadTokens})`.as("cache_read_tokens"),
       reasoningTokens: sql<number>`SUM(${schema.usageEvents.reasoningTokens})`.as("reasoning_tokens"),
       totalTokens: sql<number>`SUM(${schema.usageEvents.totalTokens})`.as("total_tokens"),
+      weightedTokens: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("weighted_tokens"),
       costUsd: sql<number>`SUM(${schema.usageEvents.costUsd})`.as("cost_usd"),
     })
     .from(schema.usageEvents)
@@ -43,6 +45,7 @@ export async function dailyTotalsForUser(userId: string, fromMs: number, toMs: n
     cacheReadTokens: Number(r.cacheReadTokens ?? 0),
     reasoningTokens: Number(r.reasoningTokens ?? 0),
     totalTokens: Number(r.totalTokens ?? 0),
+    weightedTokens: Number(r.weightedTokens ?? 0),
     costUsd: Number(r.costUsd ?? 0),
   }));
 }
@@ -60,7 +63,7 @@ export async function globalLeaderboard(fromMs: number, toMs: number, limit = 10
   const rows = await db
     .select({
       userId: schema.usageEvents.userId,
-      totalTokens: sql<number>`SUM(${schema.usageEvents.totalTokens})`.as("total_tokens"),
+      totalTokens: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("total_tokens"),
       costUsd: sql<number>`SUM(${schema.usageEvents.costUsd})`.as("cost_usd"),
     })
     .from(schema.usageEvents)

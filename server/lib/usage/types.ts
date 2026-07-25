@@ -17,6 +17,18 @@ export interface UsageBatchInput {
   events: UsageEventInput[];
 }
 
+// 加权 token：排除 cacheRead（体量大、成本低，会淹没速率/排行榜）
+// cacheReadTokens 可选出现在入参形状中（调用方常传入完整 usage 事件），但从不参与计算。
+export function weightedTokens(e: {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens?: number;
+  reasoningTokens: number;
+}): number {
+  return e.inputTokens + e.outputTokens + e.cacheCreationTokens + e.reasoningTokens;
+}
+
 export interface UsageBatchResult {
   inserted: number;
   duplicates: number;

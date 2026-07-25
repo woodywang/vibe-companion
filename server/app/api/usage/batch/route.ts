@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db, schema } from "@/lib/db";
 import { resolveClient, jsonError } from "@/lib/auth/client";
-import { estimateCost, UsageEventInput } from "@/lib/usage/types";
+import { estimateCost, weightedTokens, UsageEventInput } from "@/lib/usage/types";
 import { bodySchema } from "@/lib/usage/schema";
 import { nanoid } from "nanoid";
 
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
           cacheReadTokens: e.cacheReadTokens,
           reasoningTokens: e.reasoningTokens,
           totalTokens: e.totalTokens,
+          weightedTokens: weightedTokens(e),
           costUsd: cost,
           recordedAt: e.recordedAt,
           sourceUuid: e.sourceUuid,

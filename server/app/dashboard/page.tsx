@@ -22,7 +22,7 @@ export default async function DashboardPage() {
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayRow = daily.find((d) => d.date === todayKey);
   const recent = await db
-    .select({ total: sql<number>`SUM(${schema.usageEvents.totalTokens})` })
+    .select({ total: sql<number>`SUM(${schema.usageEvents.weightedTokens})` })
     .from(schema.usageEvents)
     .where(sql`${schema.usageEvents.userId} = ${user.id} AND ${schema.usageEvents.recordedAt} >= ${since60s}`);
   const tokensPerMin = Number(recent[0]?.total ?? 0);
@@ -46,9 +46,9 @@ export default async function DashboardPage() {
   const lb = await globalLeaderboard(todayRange.fromMs, todayRange.toMs, 1000);
   const myRank = lb.find((e) => e.userId === user.id)?.rank ?? null;
 
-  const weekTotal = daily.reduce((s, d) => s + d.totalTokens, 0);
+  const weekTotal = daily.reduce((s, d) => s + d.weightedTokens, 0);
   const weekCost = daily.reduce((s, d) => s + d.costUsd, 0);
-  const maxBar = Math.max(1, ...daily.map((d) => d.totalTokens));
+  const maxBar = Math.max(1, ...daily.map((d) => d.weightedTokens));
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -74,7 +74,7 @@ export default async function DashboardPage() {
           accent={tokensPerMin > 0 ? "active" : "idle"}
           hint={rateHint(tokensPerMin)}
         />
-        <StatCard label="今日 token" value={fmtTokens(todayRow?.totalTokens ?? 0)} icon="🔥" />
+        <StatCard label="今日 token" value={fmtTokens(todayRow?.weightedTokens ?? 0)} icon="🔥" />
         <StatCard label="本周 token" value={fmtTokens(weekTotal)} icon="📈" />
         <StatCard label="本周花费" value={fmtCost(weekCost)} icon="💸" />
       </div>
@@ -108,11 +108,11 @@ export default async function DashboardPage() {
             )}
             {[...daily].reverse().map((d) => (
               <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
-                <div className="text-[10px] text-stone-400">{fmtTokens(d.totalTokens)}</div>
+                <div className="text-[10px] text-stone-400">{fmtTokens(d.weightedTokens)}</div>
                 <div
                   className="w-full rounded-t bg-brand-500 transition-all hover:bg-brand-600"
-                  style={{ height: `${(d.totalTokens / maxBar) * 100}%`, minHeight: d.totalTokens > 0 ? 4 : 0 }}
-                  title={`${d.date}: ${fmtTokens(d.totalTokens)} tokens / ${fmtCost(d.costUsd)}`}
+                  style={{ height: `${(d.weightedTokens / maxBar) * 100}%`, minHeight: d.weightedTokens > 0 ? 4 : 0 }}
+                  title={`${d.date}: ${fmtTokens(d.weightedTokens)} tokens / ${fmtCost(d.costUsd)}`}
                 />
                 <div className="text-[10px] text-stone-400">{fmtDate(d.date)}</div>
               </div>

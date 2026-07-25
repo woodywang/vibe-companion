@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const since60s = now - 60_000;
   const recent = await db
     .select({
-      total: sql<number>`SUM(${schema.usageEvents.totalTokens})`.as("total"),
+      total: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("total"),
     })
     .from(schema.usageEvents)
     .where(sql`${schema.usageEvents.userId} = ${user.id} AND ${schema.usageEvents.recordedAt} >= ${since60s}`);
