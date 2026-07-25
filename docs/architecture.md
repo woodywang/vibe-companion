@@ -13,7 +13,7 @@
 │  TokenAggregator (60s 窗口)  │  Token  │  /api/usage/me              │
 │  UsageStore (SQLite/GRDB)   │         │  /api/clients/me            │
 │  Uploader (重试队列)          │         │  /api/leaderboard/global    │
-│  FloatingPetPanel (Lottie)  │         │                             │
+│  FloatingPetPanel (SwiftUI) │         │                             │
 │  MenuBarExtra               │         │  网站: / /login /register    │
 └─────────────────────────────┘         │       /dashboard /leaderboard│
                                         │  DB: SQLite (libsql/Drizzle) │
@@ -35,10 +35,9 @@
 | Storage | `Storage/UsageStore.swift` | GRDB SQLite 队列：enqueue/fetchPending/markUploaded/markFailed |
 | Networking | `Networking/Settings.swift` | UserDefaults 持久化 client_token/api_base/paused |
 | Networking | `Networking/Uploader.swift` | 定时批量上传 + 指数退避重试 |
-| Overlay | `Overlay/LottiePetView.swift` | `NSViewRepresentable` 包装 `LottieAnimationView`，速度绑定 |
+| Overlay | `Overlay/CyclingPetView.swift` | 纯 SwiftUI `Canvas` + `TimelineView(.animation)` 绘制蹬车形象，速度绑定 |
 | Overlay | `Overlay/FloatingPetPanel.swift` | 透明置顶 `NSPanel` + SwiftUI 内容（宠物 + 速率气泡） |
 | Settings | `Settings/SettingsView.swift` | 注册/粘贴 token、API base、暂停开关 |
-| Resources | `Resources/Animations/cycling_pet.json` | 默认蹬车 Lottie 形象（占位，后续替换原创） |
 
 ## 后端模块（`server/`）
 
@@ -74,7 +73,7 @@
 1. 用户在 Claude Code 完成一回合 -> 追加一行到 `~/.claude/projects/.../session.jsonl`。
 2. `JsonlTailer` 的 FSEvents 触发 -> 读增量 -> `onLine`。
 3. `ClaudeParser` 提取 `message.usage` -> 产出 `UsageEvent`。
-4. `TokenAggregator.ingest` 更新 60s 窗口 -> `tokensPerMinute` 变化 -> Lottie `animationSpeed` 更新（宠物加速）。
+4. `TokenAggregator.ingest` 更新 60s 窗口 -> `tokensPerMinute` 变化 -> `animationSpeed` 更新 -> SwiftUI `Canvas` 重绘（宠物加速）。
 5. `UsageStore.enqueue` 写入 SQLite `pending_event`（按 source_uuid 去重）。
 6. 20 秒后或满 50 条，`Uploader.flush` 取 pending -> `POST /api/usage/batch`。
 7. 后端 `resolveClient` 校验 Bearer token -> `estimateCost` 计算 USD -> 插入 `usage_events`（UNIQUE 约束兜底去重）。
@@ -86,4 +85,4 @@
 - **libsql 而非 better-sqlite3**：Node v26 下 native addon 编译受阻；libsql 纯 JS/WASM 零编译，且可平滑切 Turso 远程。
 - **双层幂等去重**：客户端 SQLite 按 source_uuid、服务端 UNIQUE 约束，保证崩溃/重传零重复。
 - **菜单栏 App + 悬浮窗**：放弃 WidgetKit（快照式刷新无法做连续蹬车动画）；`LSUIElement=true` 让 App 常驻菜单栏不占 Dock。
-- **Lottie 而非 Rive（MVP）**：`animationSpeed` 直接映射速率，实现简单；Rive 状态机留作多档位形象升级路径。
+- **SwiftUI Canvas 而非 Lottie/Rive（MVP）**：`animationSpeed` 直接映射速率，用 `Canvas` + `TimelineView(.animation)` 手绘蹬车形象，免去第三方动画库与资源打包；更精细的形象/状态机留作后续升级路径。
