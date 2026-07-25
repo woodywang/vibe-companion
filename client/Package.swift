@@ -28,5 +28,11 @@ let package = Package(
                 .copy("../Resources/Animations")
             ]
         )
+        ,
+        .testTarget(
+            name: "VibeCompanionTests",
+            dependencies: ["VibeCompanion"],
+            path: "VibeCompanion/Tests"
+        )
     ]
 )
