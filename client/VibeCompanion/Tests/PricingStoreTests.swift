@@ -106,4 +106,52 @@ final class PricingStoreTests: XCTestCase {
                                  fetcher: FakeFetcher(result: .failure(BoomError())))
         XCTAssertNil(store.pricing(for: "nope"))
     }
+
+    // MARK: - 线程安全
+
+    /// TSan 回归哨兵：复刻生产时序——`AppCoordinator.start()` 里
+    /// `Task { await pricingStore.refresh() }` 在后台执行器上突变定价表，
+    /// 而 `@MainActor` 的 `TokenAggregator.recompute()` 每 2 秒读同一张表。
+    ///
+    /// 修复前 `rebuild()` 直接在后台线程给 `table` 赋值（两个 Dictionary 字段的
+    /// 结构体），主线程同时读 → TSan 报 data race。
+    /// 修复后突变被搬回主线程，本测试在 TSan 下必须干净通过。
+    ///
+    /// 注意：本测试**不能**加 `@MainActor` 之外的隔离——它靠主线程上的同步
+    /// 循环与后台 refresh 真正重叠来制造竞争。
+    @MainActor
+    func testConcurrentRefreshAndLookupDoNotRace() async {
+        // 表大一些，让 rebuild 的窗口足够宽，竞争更容易被撞上
+        var snapshot: [String: Any] = [:]
+        for i in 0..<200 { snapshot["model-\(i)"] = entry(Double(i + 1) * 1e-7) }
+        var fetched: [String: Any] = [:]
+        for i in 0..<200 { fetched["model-\(i)"] = entry(Double(i + 1) * 2e-7) }
+
+        let store = PricingStore(builtinSnapshot: snapshot,
+                                 cache: FakeCache(),
+                                 fetcher: FakeFetcher(result: .success(fetched)))
+
+        // 只保护"写者是否已收工"这一个 bool。写者仅在末尾碰它一次，
+        // 因此循环期间两侧对 `table` 的访问之间不存在 happens-before 边。
+        let flagLock = NSLock()
+        var writerDone = false
+        func isWriterDone() -> Bool { flagLock.lock(); defer { flagLock.unlock() }; return writerDone }
+
+        let writer = Task.detached {
+            for _ in 0..<300 { await store.refresh() }
+            flagLock.lock(); writerDone = true; flagLock.unlock()
+        }
+
+        // 主线程侧的读者：同步自旋，覆盖写者的整个生命周期
+        var seen = 0
+        var spins = 0
+        while !isWriterDone() && spins < 5_000_000 {
+            spins += 1
+            if store.pricing(for: "model-7") != nil { seen += 1 }
+        }
+        await writer.value
+
+        XCTAssertGreaterThan(seen, 0)
+        XCTAssertNotNil(store.pricing(for: "model-7"))
+    }
 }

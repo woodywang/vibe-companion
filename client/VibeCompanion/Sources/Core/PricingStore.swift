@@ -41,11 +41,25 @@ func builtinPricingOverrides() -> [String: ModelPricing] {
 
 /// 分层定价源：内置快照 → builtin 覆盖 → 磁盘缓存 → 线上抓取。
 ///
-/// **非线程安全**——`refresh()` 与 `pricing(for:)` 需由调用方串行化
-/// （P3 中由 `@MainActor` 保证）。
+/// **线程安全**：唯一的可变状态 `table` 由 `stateLock` 保护，
+/// `pricing(for:)` 与 `refresh()` 可以来自任意线程。
+///
+/// 这是必需的而非保险：`refresh()` 是 nonisolated async，
+/// 按 SE-0338，`AppCoordinator.start()` 里的 `Task { await refresh() }`
+/// 即使发自 `@MainActor` 也会跳到全局并发执行器；
+/// 而 `@MainActor` 的 `TokenAggregator.recompute()` 每 2 秒读同一张表。
+///
+/// 为什么用锁而不是给整个类加 `@MainActor`：重建路径包含磁盘 I/O
+/// （读缓存 + 回写抓取结果）和整张 LiteLLM 表的解码——线上表有数千条，
+/// 远大于内置快照的 416 条。把这些搬到主线程只是把数据竞争换成主线程卡顿。
+/// 锁只护住 `table` 的赋值与读取，组装与 I/O 全部留在锁外、留在后台。
 final class PricingStore: PricingSource {
+    /// 保护 `table`。临界区内只做字典查表/整体赋值，不做 I/O、不回调外部代码。
+    private let stateLock = NSLock()
+    /// 由 `stateLock` 保护。
     private var table: PricingTable
-    private var snapshot: [String: Any]
+    /// init 后不再变更，故无需加锁。
+    private let snapshot: [String: Any]
     private let cache: PricingCache
     private let fetcher: PricingFetcher
     private let cacheTTL: TimeInterval
@@ -63,7 +77,9 @@ final class PricingStore: PricingSource {
     }
 
     func pricing(for model: String) -> ModelPricing? {
-        table.pricing(for: model)
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return table.pricing(for: model)
     }
 
     /// 抓取线上定价并覆盖。失败时静默保留现有定价——
@@ -76,6 +92,8 @@ final class PricingStore: PricingSource {
 
     // MARK: - private
 
+    /// 重新组装整张表并原子替换。
+    /// 组装（解码 + 磁盘读取）刻意留在锁外——临界区只有最后那次赋值。
     private func rebuild(withFetched fetched: [String: Any]?) {
         // 1. 内置快照
         var entries = decodeLiteLLMPricing(snapshot)
@@ -89,7 +107,11 @@ final class PricingStore: PricingSource {
         if let fetched {
             for (k, v) in decodeLiteLLMPricing(fetched) { entries[k] = v }
         }
-        table = PricingTable(entries: entries, aliases: ["gpt-5.3-spark": "gpt-5.3-codex-spark"])
+        let rebuilt = PricingTable(entries: entries,
+                                   aliases: ["gpt-5.3-spark": "gpt-5.3-codex-spark"])
+        stateLock.lock()
+        table = rebuilt
+        stateLock.unlock()
     }
 }
 
