@@ -112,8 +112,8 @@ struct TokenCounts {
     var cacheRead: Int
     var extraTotal: Int          // 预留：gemini 等 agent 的未归类 token
 
-    /// 对齐 ccusage TokenCounts::total()
-    var total: Int { input + output + cacheCreation5m + cacheCreation1h + cacheRead }
+    /// 对齐 ccusage TokenCounts::total()（types.rs:86-91，含 extra_total_tokens）
+    var total: Int { input + output + cacheCreation5m + cacheCreation1h + cacheRead + extraTotal }
 }
 ```
 
@@ -441,13 +441,17 @@ protocol GaugeScale {
 
 ### 7.2 配色
 
-指针角度、LCD 数字、配色**全部由 `tokensPerMinute`（Total）驱动**，三者天然一致。阈值定义为当前量程的比例而非绝对值，故对任意 scale 都成立：
+指针角度、LCD 数字、配色**全部由 `tokensPerMinute`（Total）驱动**，三者天然一致。
 
-| 区间 | 颜色 |
+阈值定义为**指针行程比例**——即 `(angle(value) - angleMin) / (angleMax - angleMin)`，而非绝对速率、也不是 `value / maxValue`：
+
+| 指针行程 | 颜色 |
 |---|---|
-| < 60% 量程 | 绿 |
+| < 60% | 绿 |
 | 60% – 85% | 黄 |
 | > 85% | 红（红线弧画在此段） |
+
+**必须用行程比例而非数值比例**：对数量程下 100k 在 10k–1M 表盘上指针正指中间（行程 50%），数值比例却只有 10%。按数值比例配色会让指针指在正中却显示绿色，破坏"颜色与角度一致"。红线弧的起点角度同样直接由 85% 行程算出，不经过数值映射。
 
 `tokensPerMinuteForIndicator` 照常计算，但只出现在菜单栏下拉的一行文字（Normal/Moderate/High，阈值 2000/5000）。
 
