@@ -44,6 +44,14 @@ final class AppCoordinator: ObservableObject {
         didSet { Settings.shared.isPaused = isPaused }
     }
 
+    /// 速度表量程，改动后悬浮窗立即重建以套用新刻度。
+    @Published var gaugeScaleID: String = Settings.shared.gaugeScaleID {
+        didSet {
+            Settings.shared.gaugeScaleID = gaugeScaleID
+            rebuildFloatingPanel()
+        }
+    }
+
     init() {
         start()
     }
@@ -72,12 +80,18 @@ final class AppCoordinator: ObservableObject {
         let p = FloatingPetPanel()
         let hosting = NSHostingView(rootView: FloatingPetContent(
             aggregator: aggregator,
-            gaugeScaleID: Settings.shared.gaugeScaleID))
+            gaugeScaleID: gaugeScaleID))
         p.contentView = hosting
         p.center()
         // 记忆上次位置（简化：默认右上角）
         p.setFrameTopLeftPoint(NSPoint(x: NSScreen.main!.frame.maxX - 200, y: NSScreen.main!.frame.maxY - 200))
         p.orderFrontRegardless()
         panel = p
+    }
+
+    private func rebuildFloatingPanel() {
+        panel?.close()
+        panel = nil
+        showFloatingPanel()
     }
 }

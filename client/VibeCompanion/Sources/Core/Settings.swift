@@ -10,13 +10,14 @@ final class Settings {
 
     private let defaults: UserDefaults
 
-    init() {
-        // 优先用 bundle id suite；若失败（无 bundle 上下文）回退到 standard。
-        if let d = UserDefaults(suiteName: "dev.vibe.companion") {
-            self.defaults = d
-        } else {
-            self.defaults = .standard
-        }
+    /// 生产用：优先 bundle id suite，失败回退 standard。
+    convenience init() {
+        self.init(defaults: UserDefaults(suiteName: "dev.vibe.companion") ?? .standard)
+    }
+
+    /// 测试用：注入独立 suite，避免污染真实偏好。
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
     }
 
     private enum Keys {
