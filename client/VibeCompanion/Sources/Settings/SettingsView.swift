@@ -20,11 +20,13 @@ struct SettingsView: View {
                         Text("Token: \(maskedToken)")
                             .font(.caption).foregroundColor(.secondary)
                     }
-                    Button("取消注册（登出此设备）", role: .destructive) {
+                    Button("登出此设备（仅本机）", role: .destructive) {
                         Settings.shared.clientToken = nil
                         Settings.shared.clientId = nil
                         message = "已登出此设备"; isError = false
                     }
+                    Text("如需彻底吊销 token，请在网站 Dashboard 删除该设备。")
+                        .font(.caption).foregroundColor(.secondary)
                 } else {
                     Text("在网站注册账户后，于 Dashboard 添加设备获取 Client Token，粘贴到下方：")
                         .font(.caption).foregroundColor(.secondary)

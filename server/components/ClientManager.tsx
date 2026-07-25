@@ -68,6 +68,13 @@ export function ClientManager({ initialClients }: { initialClients: ClientDevice
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function removeDevice(id: string) {
+    if (!confirm("删除该设备将一并清除其历史用量，确认？")) return;
+    const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+    if (res.ok) setClients((prev) => prev.filter((c) => c.id !== id));
+    else setError("删除失败");
+  }
+
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-6">
       <h2 className="mb-1 text-lg font-semibold">我的设备</h2>
@@ -127,14 +134,17 @@ export function ClientManager({ initialClients }: { initialClients: ClientDevice
                 {c.platform} · 活跃 {fmtRelative(c.lastSeenAt)}
               </div>
             </div>
-            <span
-              className={`h-2 w-2 rounded-full ${
-                c.lastSeenAt && Date.now() - c.lastSeenAt < 5 * 60_000
-                  ? "bg-green-500"
-                  : "bg-stone-300"
-              }`}
-              title={c.lastSeenAt ? fmtRelative(c.lastSeenAt) : "从未活跃"}
-            />
+            <div className="flex items-center">
+              <button onClick={() => removeDevice(c.id)} className="mr-2 text-xs text-red-500 hover:underline">删除</button>
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  c.lastSeenAt && Date.now() - c.lastSeenAt < 5 * 60_000
+                    ? "bg-green-500"
+                    : "bg-stone-300"
+                }`}
+                title={c.lastSeenAt ? fmtRelative(c.lastSeenAt) : "从未活跃"}
+              />
+            </div>
           </li>
         ))}
       </ul>
