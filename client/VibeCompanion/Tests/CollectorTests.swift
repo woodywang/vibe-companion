@@ -105,18 +105,65 @@ final class CollectorTests: XCTestCase {
         XCTAssertEqual(got[0].dedupKey, "m1:r1")
     }
 
+    /// 包装器：在 discoverFiles 里睡一觉，模拟"回扫是几百毫秒文件 I/O"
+    private struct SlowDiscoverAdapter: AgentAdapter {
+        let inner: AgentAdapter
+        let files: [URL]
+        let delay: TimeInterval
+        var id: String { inner.id }
+        func discoverFiles() -> [URL] { Thread.sleep(forTimeInterval: delay); return files }
+        func parse(line: String, context: inout ParseContext) -> UsageEntry? {
+            inner.parse(line: line, context: &context)
+        }
+        func timestamp(fromLine line: String) -> Date? { inner.timestamp(fromLine: line) }
+    }
+
+    /// `start()` 不得阻塞调用线程。生产里它跑在 MainActor 上、在菜单栏图标
+    /// 出现之前，而回扫要 probe 上百个文件再整文件读一遍。
+    func testStartDoesNotBlockCallingThread() throws {
+        let line = """
+        {"type":"assistant","requestId":"r1","timestamp":"2026-07-25T07:00:00.000Z",\
+        "message":{"id":"m1","model":"claude-opus-5",\
+        "usage":{"input_tokens":10,"output_tokens":20}}}
+        """
+        let url = try write(line + "\n", name: "slow.jsonl")
+        let c = Collector(adapters: [SlowDiscoverAdapter(inner: ClaudeAdapter(roots: []),
+                                                         files: [url], delay: 0.5)],
+                          backfillWindowHours: 24 * 365,
+                          now: { Date(timeIntervalSince1970: 1_784_966_400) })
+        let done = expectation(description: "entry")
+        done.assertForOverFulfill = false
+        c.onEntry = { _ in done.fulfill() }
+
+        let t0 = Date()
+        c.start()
+        let elapsed = Date().timeIntervalSince(t0)
+        XCTAssertLessThan(elapsed, 0.2, "start() 阻塞调用线程 \(elapsed)s")
+
+        // 回扫仍要真的发生，只是挪到了后台
+        wait(for: [done], timeout: 5)
+        c.stop()
+    }
+
     // MARK: 并发安全
 
     /// 每次 discoverFiles 都多吐一批文件，逼 rescan 反复**写** ownerByFile / contextByFile。
-    /// 计数只在 rescan 所在线程上被触碰，故自身无需同步。
+    ///
+    /// 计数自带锁：`start()` 的首轮 rescan 跑在 Collector 的 scanQueue 上，
+    /// 而本用例又从自己的队列并发驱动 rescan，两边都会调 discoverFiles。
+    /// 不锁的话 TSan 会报到这个测试替身头上，把真正要看的生产侧竞争淹掉。
     private final class GrowingAdapter: AgentAdapter {
         let id = "growing"
         let dir: URL
+        private let lock = NSLock()
         private var count = 0
         init(dir: URL) { self.dir = dir }
         func discoverFiles() -> [URL] {
+            lock.lock()
             count = min(count + 4, 120)
-            return (0..<count).map { dir.appendingPathComponent("race-\($0).jsonl") }
+            let n = count
+            lock.unlock()
+            return (0..<n).map { dir.appendingPathComponent("race-\($0).jsonl") }
         }
         func parse(line: String, context: inout ParseContext) -> UsageEntry? {
             context.stickyModel = line
@@ -136,7 +183,11 @@ final class CollectorTests: XCTestCase {
 
         let c = Collector(adapters: [GrowingAdapter(dir: dir)],
                           backfillWindowHours: 6, now: { self.now })
-        c.start()                       // 首轮 rescan，字典里已有前 4 个文件
+        c.start()
+        // start() 的首轮 rescan 现在派到后台队列，到不到位不确定；
+        // 这里同步再扫一次把前几个文件确定地登记进字典，
+        // 让下面 handle 的那 4000 次调用一定能走到临界区而不是被 guard 挡掉。
+        c.rescan()
         let seeded = (0..<4).map { dir.appendingPathComponent("race-\($0).jsonl") }
 
         let done = expectation(description: "concurrent churn finished")

@@ -28,6 +28,24 @@ final class Collector {
     private var contextByFile: [URL: ParseContext] = [:]
     private var rescanTimer: Timer?
 
+    /// 扫描/回扫专用串行队列。
+    ///
+    /// 为什么存在：首次 `rescan()` 对每个 session 文件做 `TailProbe`
+    /// （open/seek/8KB/close），命中回扫窗口的还要 `tailer.watch(startAtBeginning: true)`
+    /// ——后者 `queue.sync` 进 tailer 队列，同步读完**整个文件**才返回。
+    /// 实测本机 150 个会话文件、共 59 MB，跑在主线程上是几百毫秒的卡顿，
+    /// 且发生在菜单栏图标出现之前，并随用户活动量线性增长。
+    ///
+    /// **锁序不变**：改的只是 rescan 跑在哪个线程上。rescan 依旧在
+    /// **释放 mapsLock 之后**才调用 `watch`，两条路径（rescan 经 `queue.sync`
+    /// 进 tailer 队列后回调 handle、DispatchSource 事件在 tailer 队列上回调 handle）
+    /// 仍然都是 tailer-queue → mapsLock，没有反转，也没有新增 sync 嵌套。
+    ///
+    /// 串行而非并发：多个 rescan 并发跑没有收益（`watch` 内部本就被 tailer
+    /// 队列串行化），却会让"先登记再 watch"的时序更难推理。原先由主 run loop
+    /// 提供的串行性，现在由这条队列提供。
+    private let scanQueue = DispatchQueue(label: "vibe.collector.scan")
+
     init(adapters: [AgentAdapter] = [ClaudeAdapter(), CodexAdapter()],
          backfillWindowHours: Double = 6,
          now: @escaping () -> Date = { Date() }) {
@@ -40,10 +58,14 @@ final class Collector {
         tailer.onLine = { [weak self] url, line in
             self?.handle(url: url, line: line)
         }
-        rescan()
-        // 每 10s 重新扫描，捕获新创建的 session 文件
+        // 首次回扫派到后台，`start()` 立即返回——见 `scanQueue` 的说明
+        scanQueue.async { [weak self] in self?.rescan() }
+        // 每 10s 重新扫描，捕获新创建的 session 文件。
+        // Timer 建在调用线程的 run loop 上（生产是主线程），但它只负责派发，
+        // 实际扫描同样跑在 scanQueue 上。
         rescanTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            self?.rescan()
+            guard let self else { return }
+            self.scanQueue.async { self.rescan() }
         }
     }
 
