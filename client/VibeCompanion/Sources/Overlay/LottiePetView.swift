@@ -7,7 +7,15 @@ struct LottiePetView: NSViewRepresentable {
     let speed: Double                  // animationSpeed
 
     func makeNSView(context: Context) -> Lottie.LottieAnimationView {
-        let view = LottieAnimationView(name: animationName, bundle: .main)
+        // SwiftPM 打包的资源在 Contents/Resources/Animations/ 子目录下。
+        // LottieAnimationView(name:bundle:) 不传 subdirectory 时只在 bundle 根查找，
+        // 找不到会静默返回空视图（animation 为 nil）。这里显式指定子目录。
+        let animation = LottieAnimation.named(
+            animationName,
+            bundle: .main,
+            subdirectory: "Animations"
+        )
+        let view = LottieAnimationView(animation: animation)
         view.contentMode = .scaleAspectFit
         view.loopMode = .loop
         view.backgroundBehavior = .pauseAndRestore
