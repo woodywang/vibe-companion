@@ -32,6 +32,14 @@ func calculateCost(counts: TokenCounts, pricing: ModelPricing, isFast: Bool) -> 
     let cc1hRate = pricing.input * CostConfig.cacheCreate1hInputMultiplier
     let cc1hAbove = pricing.inputAbove200k.map { $0 * CostConfig.cacheCreate1hInputMultiplier }
 
+    // cache_read 单价**未显式给出**时，cached token 按**完整 input 单价**计费，
+    // 而不是解码期填入的 `input × 0.1` 缺省（设计规格 §5 Codex 路径）。
+    // 语义是"这些 token 当普通 input 算"，故分段单价一并取 input 桶的。
+    // 实测内置快照 416 条里 98 条无显式 cache_read，且它们**无一**带
+    // `input_cost_per_token_above_200k_tokens`，故 above 的取法在真实数据上不产生分歧。
+    let crRate = pricing.cacheReadExplicit ? pricing.cacheRead : pricing.input
+    let crAbove = pricing.cacheReadExplicit ? pricing.cacheReadAbove200k : pricing.inputAbove200k
+
     let base: Double
     if let threshold = pricing.longContextThreshold {
         let isLong = counts.input > threshold
@@ -40,7 +48,7 @@ func calculateCost(counts: TokenCounts, pricing: ModelPricing, isFast: Bool) -> 
              + Double(counts.output) * rate(pricing.output, pricing.outputAbove200k)
              + Double(counts.cacheCreation5m) * rate(pricing.cacheCreate, pricing.cacheCreateAbove200k)
              + Double(counts.cacheCreation1h) * rate(cc1hRate, cc1hAbove)
-             + Double(counts.cacheRead) * rate(pricing.cacheRead, pricing.cacheReadAbove200k)
+             + Double(counts.cacheRead) * rate(crRate, crAbove)
     } else {
         let t = CostConfig.defaultLongContextThreshold
         base = tieredCost(counts.input, base: pricing.input,
@@ -51,8 +59,8 @@ func calculateCost(counts: TokenCounts, pricing: ModelPricing, isFast: Bool) -> 
                           above: pricing.cacheCreateAbove200k, threshold: t)
              + tieredCost(counts.cacheCreation1h, base: cc1hRate,
                           above: cc1hAbove, threshold: t)
-             + tieredCost(counts.cacheRead, base: pricing.cacheRead,
-                          above: pricing.cacheReadAbove200k, threshold: t)
+             + tieredCost(counts.cacheRead, base: crRate,
+                          above: crAbove, threshold: t)
     }
 
     return base * (isFast ? pricing.fastMultiplier : 1.0)

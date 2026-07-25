@@ -117,6 +117,56 @@ final class CostCalculatorTests: XCTestCase {
         XCTAssertEqual(calculateCost(counts: c, pricing: p, isFast: false), expected, accuracy: eps)
     }
 
+    // MARK: cacheReadExplicit —— cached token 的单价来源
+
+    /// 显式给出 cache_read 单价时走原路径：cached 按 cache_read 单价计费
+    func testExplicitCacheReadRateIsUsedWhenDeclared() {
+        let c = TokenCounts(cacheRead: 10_000)
+        let p = pricing(input: 5e-6, cacheRead: 0.5e-6, cacheReadExplicit: true)
+        XCTAssertEqual(calculateCost(counts: c, pricing: p, isFast: false),
+                       10_000 * 0.5e-6, accuracy: eps)
+    }
+
+    /// 未显式给出时按**完整 input 单价**计费，而不是解码期填入的 input × 0.1 缺省。
+    /// 差 10 倍——这正是 Codex 主力 token 桶上的差异。
+    func testImplicitCacheReadFallsBackToFullInputRate() {
+        let c = TokenCounts(cacheRead: 10_000)
+        // 解码期会把 cacheRead 填成 input × 0.1；这里照实模拟
+        let p = pricing(input: 5e-6, cacheRead: 5e-6 * PricingDefaults.cacheReadMultiplier,
+                        cacheReadExplicit: false)
+        XCTAssertEqual(calculateCost(counts: c, pricing: p, isFast: false),
+                       10_000 * 5e-6, accuracy: eps)
+    }
+
+    /// 未显式时的分段单价也取 input 桶的（语义是"当普通 input 算"）
+    func testImplicitCacheReadUsesInputTierAbove200k() {
+        let c = TokenCounts(cacheRead: 300_000)
+        let p = pricing(input: 5e-6, cacheRead: 0.5e-6, cacheReadExplicit: false,
+                        inputAbove: 10e-6, cacheReadAbove: 1e-6)
+        XCTAssertEqual(calculateCost(counts: c, pricing: p, isFast: false),
+                       200_000 * 5e-6 + 100_000 * 10e-6, accuracy: eps)
+    }
+
+    /// OpenAI 整请求选档分支同样要走这条回退
+    func testImplicitCacheReadAppliesOnOpenAIPath() {
+        let c = TokenCounts(input: 1000, cacheRead: 10_000)
+        let p = pricing(input: 5e-6, cacheRead: 0.5e-6, cacheReadExplicit: false,
+                        longContextThreshold: 272_000)
+        XCTAssertEqual(calculateCost(counts: c, pricing: p, isFast: false),
+                       1000 * 5e-6 + 10_000 * 5e-6, accuracy: eps)
+    }
+
+    /// 端到端：LiteLLM 条目缺 cache_read_input_token_cost -> 解码 -> 计价
+    func testLiteLLMEntryWithoutCacheReadCostBillsCachedAtInputRate() throws {
+        let p = try XCTUnwrap(ModelPricing(liteLLM: [
+            "input_cost_per_token": 5e-6, "output_cost_per_token": 25e-6,
+        ]))
+        XCTAssertFalse(p.cacheReadExplicit)
+        XCTAssertEqual(calculateCost(counts: TokenCounts(cacheRead: 1000),
+                                     pricing: p, isFast: false),
+                       1000 * 5e-6, accuracy: eps)
+    }
+
     // MARK: fast 倍率
 
     func testFastMultiplierScalesWholeCost() {
