@@ -1,21 +1,42 @@
 import SwiftUI
 
-/// 老式汽车速度表：圆形表盘 + 白刻度/数字 + 红指针 + 红线区 + LCD 数字窗。
-/// 指针角度 = speedometerAngle(tokensPerMinute:)，弹簧动画带过冲回摆。
+/// 老式汽车速度表：圆形表盘 + 白刻度/数字 + 指针 + 红线区 + LCD 数字窗。
+/// 指针角度 = scale.angle(for: tokensPerMinute)，弹簧动画带过冲回摆。
 struct SpeedometerView: View {
     let tokensPerMinute: Double
+    /// false 表示活跃块不足以算出速率，LCD 显示 "--"，指针归零。
+    let hasBurnRate: Bool
+    /// 量程由用户在设置中选择，本视图不假设任何具体数值范围。
+    let scale: GaugeScale
 
-    // 表盘几何（在 1.0 基准坐标系内，整体放进 140×140 frame）
+    // 表盘几何（在 200×200 基准坐标系内，整体放进 140×140 frame）
     private let size: CGFloat = 140
     private let center = CGPoint(x: 100, y: 100)
     private let rimRadius: CGFloat = 96
     private let dialRadius: CGFloat = 82
-    private let redlineStart: Double = 400_000  // 红线区起点 tok/min
-    private let majorValues: [Double] = [0, 100_000, 200_000, 300_000, 400_000, 500_000]
+
+    /// 红线弧起点角度：直接由行程比例算，与 `gaugeZone` 同源。
+    /// 不要写成 `scale.angle(for: maxValue * redFraction)`——对数量程下
+    /// 那样得到的角度与配色边界不重合。
+    private var redlineStartAngle: Double {
+        GaugeGeometry.angleMin + GaugeColorConfig.redFraction * GaugeGeometry.sweep
+    }
+
+    private var zone: GaugeZone {
+        hasBurnRate ? gaugeZone(value: tokensPerMinute, scale: scale) : .green
+    }
+
+    private var zoneColor: Color {
+        switch zone {
+        case .green: return Color(hex: 0x3D_D6_8C)
+        case .yellow: return Color(hex: 0xE8_B3_39)
+        case .red: return Color(hex: 0xE5_48_4D)
+        }
+    }
 
     var body: some View {
-        let angle = speedometerAngle(tokensPerMinute: tokensPerMinute)
-        let display = speedometerFormat(tokensPerMinute)
+        let angle = hasBurnRate ? scale.angle(for: tokensPerMinute) : GaugeGeometry.angleMin
+        let display = speedometerDisplay(rpm: tokensPerMinute, hasBurnRate: hasBurnRate)
 
         ZStack {
             dialBackground
@@ -61,39 +82,48 @@ struct SpeedometerView: View {
     }
 
     private var redlineArc: some View {
-        // 400k -> 500k（量程上限）红色弧段
-        let start = Angle.degrees(speedometerAngle(tokensPerMinute: redlineStart) - 90)
-        let end = Angle.degrees(speedometerAngle(tokensPerMinute: SpeedometerConfig.valueMax) - 90)
+        let start = Angle.degrees(redlineStartAngle - 90)
+        let end = Angle.degrees(GaugeGeometry.angleMax - 90)
         return ArcShape(center: center, radius: 74, start: start, end: end)
             .stroke(Color(hex: 0xE5_48_4D), style: StrokeStyle(lineWidth: 7, lineCap: .round))
     }
 
     private var ticks: some View {
-        // 每 50k 一根刻度，0..500k 共 11 根
-        let stepCount = Int(SpeedometerConfig.valueMax / 50_000)   // 10
+        // 主刻度来自量程；每两个主刻度之间插 4 根副刻度
+        let majors = scale.majorTicks
         return ZStack {
-            ForEach(0...stepCount, id: \.self) { i in
-                let value = Double(i) * 50_000
-                let isMajor = majorValues.contains(value)
-                let ang = speedometerAngle(tokensPerMinute: value)
-                TickShape(
-                    center: center,
-                    innerRadius: isMajor ? 60 : 72,
-                    outerRadius: 78,
-                    angle: Angle.degrees(ang)
-                )
-                .stroke(Color.white.opacity(isMajor ? 1.0 : 0.55),
-                        style: StrokeStyle(lineWidth: isMajor ? 4 : 1.5, lineCap: .round))
+            ForEach(Array(majors.enumerated()), id: \.offset) { _, value in
+                TickShape(center: center, innerRadius: 60, outerRadius: 78,
+                          angle: Angle.degrees(scale.angle(for: value)))
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+            }
+            ForEach(Array(minorTickAngles.enumerated()), id: \.offset) { _, ang in
+                TickShape(center: center, innerRadius: 72, outerRadius: 78,
+                          angle: Angle.degrees(ang))
+                    .stroke(Color.white.opacity(0.55),
+                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
     }
 
+    /// 副刻度按**角度**均分，而非按数值——对数量程下按数值均分会挤在一起。
+    private var minorTickAngles: [Double] {
+        let majors = scale.majorTicks.map { scale.angle(for: $0) }
+        guard majors.count >= 2 else { return [] }
+        var out: [Double] = []
+        for i in 0..<(majors.count - 1) {
+            let a = majors[i], b = majors[i + 1]
+            for k in 1..<5 { out.append(a + (b - a) * Double(k) / 5) }
+        }
+        return out
+    }
+
     private var numbers: some View {
         ZStack {
-            ForEach(majorValues, id: \.self) { value in
-                let ang = speedometerAngle(tokensPerMinute: value)
+            ForEach(scale.majorTicks, id: \.self) { value in
+                let ang = scale.angle(for: value)
                 let pos = polarPoint(center: center, radius: 50, angleDeg: ang)
-                Text(formatScale(value))
+                Text(speedometerFormat(value))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
                     .position(x: pos.x, y: pos.y)
@@ -112,14 +142,14 @@ struct SpeedometerView: View {
                 )
             Text(display)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(Color(hex: 0x7E_F0_C1))
+                .foregroundColor(zoneColor)
         }
         .position(x: center.x, y: center.y + 49)
     }
 
     private func needle(_ angle: Double) -> some View {
         NeedleShape()
-            .fill(Color(hex: 0xE5_48_4D))
+            .fill(zoneColor)
             .frame(width: 6, height: 72)
             .offset(y: -24)   // 针尖向上，中心在表盘中心
             .rotationEffect(.degrees(angle), anchor: .center)
@@ -139,16 +169,11 @@ struct SpeedometerView: View {
 
     // MARK: - helpers
 
-    /// 极坐标转直角（角度：0° = 正上，顺时针为正，与 speedometerAngle 约定一致）。
+    /// 极坐标转直角（角度：0° = 正上，顺时针为正，与 `GaugeScale.angle(for:)` 约定一致）。
     private func polarPoint(center: CGPoint, radius: CGFloat, angleDeg: Double) -> CGPoint {
         let a = (angleDeg - 90) * .pi / 180
         return CGPoint(x: center.x + radius * CGFloat(cos(a)),
                        y: center.y + radius * CGFloat(sin(a)))
-    }
-
-    private func formatScale(_ v: Double) -> String {
-        if v >= 1000 { return "\(Int(v / 1000))k" }
-        return "\(Int(v))"
     }
 }
 

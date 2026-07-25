@@ -27,17 +27,21 @@ final class FloatingPetPanel: NSPanel {
 /// SwiftUI 内容容器：速度表显示 token 消耗速率
 struct FloatingPetContent: View {
     @ObservedObject var aggregator: TokenAggregator
+    /// 用户选择的量程标识，随设置变化。
+    let gaugeScaleID: String
 
     var body: some View {
         let rpm = aggregator.tokensPerMinute
-        let isIdle = speedometerIsIdle(tokensPerMinute: rpm)
+        let scale = gaugeScale(id: gaugeScaleID, recentPeak: aggregator.recentPeak)
 
         VStack(spacing: 2) {
-            SpeedometerView(tokensPerMinute: rpm)
+            SpeedometerView(tokensPerMinute: rpm,
+                            hasBurnRate: aggregator.hasBurnRate,
+                            scale: scale)
                 .frame(width: 140, height: 140)
 
-            // 速率小气泡（非 idle 时显示）
-            if !isIdle {
+            // 速率小气泡（非 idle 且有速率时显示）
+            if !aggregator.isIdle && aggregator.hasBurnRate {
                 Text(speedometerFormat(rpm))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .padding(.horizontal, 8)

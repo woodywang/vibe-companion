@@ -21,10 +21,20 @@ final class Settings {
 
     private enum Keys {
         static let paused = "vc.paused"
+        static let gaugeScaleID = "vc.gaugeScaleID"
     }
 
     var isPaused: Bool {
         get { defaults.bool(forKey: Keys.paused) }
         set { defaults.set(newValue, forKey: Keys.paused) }
+    }
+
+    /// 速度表量程标识。未设置或值非法时回退到线性。
+    var gaugeScaleID: String {
+        get {
+            let stored = defaults.string(forKey: Keys.gaugeScaleID) ?? ""
+            return allGaugeScaleIDs.contains(stored) ? stored : "linear"
+        }
+        set { defaults.set(newValue, forKey: Keys.gaugeScaleID) }
     }
 }

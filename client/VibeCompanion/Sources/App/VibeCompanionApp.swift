@@ -70,7 +70,9 @@ final class AppCoordinator: ObservableObject {
 
     private func showFloatingPanel() {
         let p = FloatingPetPanel()
-        let hosting = NSHostingView(rootView: FloatingPetContent(aggregator: aggregator))
+        let hosting = NSHostingView(rootView: FloatingPetContent(
+            aggregator: aggregator,
+            gaugeScaleID: Settings.shared.gaugeScaleID))
         p.contentView = hosting
         p.center()
         // 记忆上次位置（简化：默认右上角）
