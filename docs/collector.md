@@ -50,13 +50,7 @@ JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAg
 - 监听到写入事件后，`lseek` 到上次 offset，读取增量，按 `\n` 拆行。
 - **轮转检测**：若 `currentSize < offset`（文件被截断/轮转），重置 offset 为 0。
 
-### 3. 去重
-
-- 每条事件带 `source_uuid`（Claude 用行内 `uuid`，Codex 用 `sessionId + timestamp`）。
-- 当前数据只进内存聚合器，无持久化队列；`source_uuid` 保留给后续的本地历史存储使用。
-- **注意**：Claude Code 会把一条 assistant 响应写成多个 `type:assistant` 行（流式增量 + 最终态），它们共享同一 `uuid`。
-
-### 4. 速率聚合
+### 3. 速率聚合
 
 采用 ccusage v20 的 **session block burn rate** 算法（参考 `rust/crates/ccusage/src/blocks.rs`）。
 
