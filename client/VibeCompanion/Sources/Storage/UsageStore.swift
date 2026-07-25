@@ -5,7 +5,7 @@ import GRDB
 final class UsageStore {
     private let dbPool: DatabasePool
 
-    init() throws {
+    convenience init() throws {
         let appSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -14,9 +14,21 @@ final class UsageStore {
         )
         let dir = appSupport.appendingPathComponent("VibeCompanion", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dbURL = dir.appendingPathComponent("usage.db")
-        dbPool = try DatabasePool(path: dbURL.path)
+        try self.init(path: dir.appendingPathComponent("usage.db").path)
+    }
+
+    /// 测试钩子：允许指定任意数据库路径（生产路径见 `init()`）。
+    init(path: String) throws {
+        dbPool = try DatabasePool(path: path)
         try migrator.migrate(dbPool)
+        try recoverStuck()
+    }
+
+    /// 崩溃后复位卡在 uploading 的行，避免永久卡死丢数据。
+    func recoverStuck() throws {
+        try dbPool.write { db in
+            try db.execute(sql: "UPDATE pending_event SET status='pending' WHERE status='uploading'")
+        }
     }
 
     private var migrator: DatabaseMigrator {
