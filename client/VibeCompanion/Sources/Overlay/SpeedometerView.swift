@@ -26,8 +26,9 @@ struct SpeedometerView: View {
             needle(angle)
             centerCap
         }
-        .frame(width: size, height: size)
-        .scaleEffect(size / 200)   // 几何按 200 设计，缩放到 140
+        .frame(width: 200, height: 200)     // 与几何坐标系一致，内容自然居中
+        .scaleEffect(size / 200)            // 缩放到 140
+        .frame(width: size, height: size)   // 撑住布局尺寸
     }
 
     // MARK: - 部件
