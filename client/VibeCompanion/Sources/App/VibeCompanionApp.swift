@@ -30,7 +30,12 @@ struct VibeCompanionApp: App {
 /// 协调采集器、聚合器、悬浮窗的生命周期
 @MainActor
 final class AppCoordinator: ObservableObject {
-    let aggregator = TokenAggregator()
+    let pricingStore = PricingStore(builtinSnapshot: loadBuiltinPricingSnapshot(),
+                                    cache: FilePricingCache(),
+                                    fetcher: URLSessionPricingFetcher())
+    lazy var aggregator = TokenAggregator(pricing: pricingStore,
+                                          retentionHours: AppConfig.windowRetentionHours,
+                                          idleTimeoutSeconds: AppConfig.idleTimeoutSeconds)
     private(set) var collector: Collector?
     private var panel: FloatingPetPanel?
 
@@ -54,6 +59,10 @@ final class AppCoordinator: ObservableObject {
         }
         c.start()
         collector = c
+
+        aggregator.startTicking(interval: AppConfig.recomputeIntervalSeconds)
+        // 定价异步刷新，失败不影响速率显示
+        Task { await pricingStore.refresh() }
 
         // 悬浮宠物窗
         showFloatingPanel()

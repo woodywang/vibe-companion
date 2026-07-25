@@ -3,24 +3,177 @@ import XCTest
 
 @MainActor
 final class TokenAggregatorTests: XCTestCase {
-    private func ev(total: Int, weightedInput: Int, at ms: Int64) -> UsageEvent {
-        UsageEvent(sourceUuid: "u\(ms)", agent: "claude", sessionId: nil, model: nil,
-                   inputTokens: weightedInput, outputTokens: 0, cacheCreationTokens: 0,
-                   cacheReadTokens: total - weightedInput, reasoningTokens: 0,
-                   totalTokens: total, recordedAt: ms)
+
+    private let base = Date(timeIntervalSince1970: 1_785_000_000)
+
+    private struct NoPricing: PricingSource {
+        func pricing(for model: String) -> ModelPricing? { nil }
     }
 
-    func testEffectiveExcludesCacheRead() {
-        XCTAssertEqual(ev(total: 100, weightedInput: 10, at: 0).effectiveTokens, 10)
+    private struct FlatPricing: PricingSource {
+        let rate: Double
+        func pricing(for model: String) -> ModelPricing? {
+            ModelPricing(input: rate, output: rate, cacheCreate: rate, cacheRead: rate,
+                         cacheReadExplicit: true, inputAbove200k: nil, outputAbove200k: nil,
+                         cacheCreateAbove200k: nil, cacheReadAbove200k: nil,
+                         longContextThreshold: nil, fastMultiplier: 1.0)
+        }
     }
 
-    func testTodayResetsAcrossDay() {
-        var now = Date(timeIntervalSince1970: 1_000_000)
-        let agg = TokenAggregator(windowSeconds: 60, now: { now })
-        agg.ingest(ev(total: 50, weightedInput: 50, at: Int64(now.timeIntervalSince1970 * 1000)))
-        XCTAssertEqual(agg.todayTotal, 50)
-        now = now.addingTimeInterval(86_400)   // next day
-        agg.ingest(ev(total: 20, weightedInput: 20, at: Int64(now.timeIntervalSince1970 * 1000)))
-        XCTAssertEqual(agg.todayTotal, 20)
+    private func entry(min: Double, input: Int = 0, output: Int = 0,
+                       cacheRead: Int = 0, key: String) -> UsageEntry {
+        UsageEntry(timestamp: base.addingTimeInterval(min * 60),
+                   agent: "claude", sessionId: nil, model: "claude-opus-5",
+                   counts: TokenCounts(input: input, output: output, cacheRead: cacheRead),
+                   isSidechain: false, hasSpeed: false, isFastSpeed: false, dedupKey: key)
+    }
+
+    private func aggregator(nowOffsetMin: Double,
+                            pricing: PricingSource = NoPricing()) -> TokenAggregator {
+        TokenAggregator(pricing: pricing, retentionHours: 6, idleTimeoutSeconds: 90,
+                        now: { self.base.addingTimeInterval(nowOffsetMin * 60) })
+    }
+
+    // MARK: 主速率
+
+    func testRateUsesTotalTokensIncludingCacheRead() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 100, output: 100, cacheRead: 800, key: "k1"))
+        a.ingest(entry(min: 10, input: 100, output: 100, cacheRead: 800, key: "k2"))
+        a.recompute()
+        // total = 2000，跨 10 分钟
+        XCTAssertEqual(a.tokensPerMinute, 200, accuracy: 0.001)
+    }
+
+    func testIndicatorExcludesCacheBuckets() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 100, output: 100, cacheRead: 800, key: "k1"))
+        a.ingest(entry(min: 10, input: 100, output: 100, cacheRead: 800, key: "k2"))
+        a.recompute()
+        // input+output = 400，跨 10 分钟
+        XCTAssertEqual(a.indicatorTokensPerMinute, 40, accuracy: 0.001)
+        XCTAssertEqual(a.level, .normal)
+    }
+
+    func testLevelFollowsIndicatorNotTotal() {
+        let a = aggregator(nowOffsetMin: 2)
+        // indicator = 12000/1min = 12000 -> high，尽管 total 更大
+        a.ingest(entry(min: 0, input: 6000, output: 0, cacheRead: 900_000, key: "k1"))
+        a.ingest(entry(min: 1, input: 6000, output: 0, cacheRead: 900_000, key: "k2"))
+        a.recompute()
+        XCTAssertEqual(a.level, .high)
+    }
+
+    // MARK: 窗口以 entry timestamp 为准
+
+    func testUsesEntryTimestampNotArrivalTime() {
+        let a = aggregator(nowOffsetMin: 11)
+        // 两条 entry 的时间戳相隔 10 分钟，但都是"此刻"注入的
+        a.ingest(entry(min: 0, input: 500, key: "k1"))
+        a.ingest(entry(min: 10, input: 500, key: "k2"))
+        a.recompute()
+        XCTAssertEqual(a.tokensPerMinute, 100, accuracy: 0.001)   // 1000 / 10min
+    }
+
+    // MARK: 单条 entry -> 无速率
+
+    func testSingleEntryYieldsNoBurnRate() {
+        let a = aggregator(nowOffsetMin: 1)
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.recompute()
+        XCTAssertFalse(a.hasBurnRate)
+        XCTAssertEqual(a.tokensPerMinute, 0, accuracy: 0.001)
+    }
+
+    func testTwoEntriesYieldBurnRate() {
+        let a = aggregator(nowOffsetMin: 2)
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.ingest(entry(min: 1, input: 100, key: "k2"))
+        a.recompute()
+        XCTAssertTrue(a.hasBurnRate)
+    }
+
+    // MARK: 空闲归零（偏离 D1）
+
+    func testIdleAfterTimeoutZeroesRate() {
+        let a = aggregator(nowOffsetMin: 20)      // 距末条 entry 10 分钟 > 90s
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.ingest(entry(min: 10, input: 100, key: "k2"))
+        a.recompute()
+        XCTAssertTrue(a.isIdle)
+        XCTAssertEqual(a.tokensPerMinute, 0, accuracy: 0.001)
+    }
+
+    func testNotIdleWithinTimeout() {
+        let a = aggregator(nowOffsetMin: 11)      // 距末条 60s < 90s
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.ingest(entry(min: 10, input: 100, key: "k2"))
+        a.recompute()
+        XCTAssertFalse(a.isIdle)
+        XCTAssertGreaterThan(a.tokensPerMinute, 0)
+    }
+
+    // MARK: 去重
+
+    func testDuplicateKeyIsDeduped() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.ingest(entry(min: 0, input: 100, key: "k1"))   // 同键，同量 -> 丢弃
+        a.ingest(entry(min: 10, input: 100, key: "k2"))
+        a.recompute()
+        XCTAssertEqual(a.tokensPerMinute, 20, accuracy: 0.001)   // 200/10，不是 300/10
+    }
+
+    // MARK: 今日累计
+
+    func testTodayTotalUsesTotalTokensAndDedupes() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 10, cacheRead: 90, key: "k1"))
+        a.ingest(entry(min: 0, input: 10, cacheRead: 90, key: "k1"))   // 重复
+        a.ingest(entry(min: 10, input: 10, cacheRead: 90, key: "k2"))
+        a.recompute()
+        XCTAssertEqual(a.todayTotal, 200)
+    }
+
+    /// 今日累计不受 6h 主窗口驱逐影响
+    func testTodayTotalSurvivesMainWindowEviction() {
+        let a = aggregator(nowOffsetMin: 60 * 10)     // now = base + 10h
+        a.ingest(entry(min: 0, input: 100, key: "k1"))         // 10h 前，已被主窗口驱逐
+        a.ingest(entry(min: 60 * 9, input: 100, key: "k2"))    // 1h 前
+        a.recompute()
+        XCTAssertEqual(a.todayTotal, 200)
+    }
+
+    // MARK: cost
+
+    func testCostPerHourComputedFromPerEntryCosts() {
+        let a = aggregator(nowOffsetMin: 31, pricing: FlatPricing(rate: 1e-3))
+        a.ingest(entry(min: 0, input: 1000, key: "k1"))
+        a.ingest(entry(min: 30, input: 1000, key: "k2"))
+        a.recompute()
+        // cost = 2000 * 1e-3 = 2.0 USD，跨 30 分钟 -> 4.0 USD/h
+        XCTAssertEqual(a.costPerHour!, 4.0, accuracy: 1e-9)
+    }
+
+    func testCostNilWhenPricingUnavailable() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 100, key: "k1"))
+        a.ingest(entry(min: 10, input: 100, key: "k2"))
+        a.recompute()
+        XCTAssertNil(a.costPerHour)
+        // 定价缺失不得影响速率
+        XCTAssertGreaterThan(a.tokensPerMinute, 0)
+    }
+
+    // MARK: 近期峰值
+
+    func testRecentPeakTracksMaximum() {
+        let a = aggregator(nowOffsetMin: 11)
+        a.ingest(entry(min: 0, input: 1000, key: "k1"))
+        a.ingest(entry(min: 10, input: 1000, key: "k2"))
+        a.recompute()
+        let peak = a.recentPeak
+        XCTAssertGreaterThan(peak, 0)
+        XCTAssertGreaterThanOrEqual(peak, a.tokensPerMinute)
     }
 }
