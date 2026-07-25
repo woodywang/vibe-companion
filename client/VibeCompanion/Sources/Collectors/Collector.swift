@@ -72,7 +72,7 @@ enum ClaudeParser {
         // timestamp 可能是 ISO 字符串
         let recordedAt: Int64
         if let ts = obj["timestamp"] as? String,
-           let date = ISO8601DateFormatter().date(from: ts) {
+           let date = DateParsing.parseISO8601(ts) {
             recordedAt = Int64(date.timeIntervalSince1970 * 1000)
         } else {
             recordedAt = Int64(Date().timeIntervalSince1970 * 1000)
@@ -123,7 +123,7 @@ enum CodexParser {
         // Codex 时间戳：顶层 timestamp（ISO 字符串或 ms 数字）
         let recordedAt: Int64
         if let ts = obj["timestamp"] as? String,
-           let date = ISO8601DateFormatter().date(from: ts) {
+           let date = DateParsing.parseISO8601(ts) {
             recordedAt = Int64(date.timeIntervalSince1970 * 1000)
         } else if let ts = obj["timestamp"] as? NSNumber {
             recordedAt = ts.int64Value
