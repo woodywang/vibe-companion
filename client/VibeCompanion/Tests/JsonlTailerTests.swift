@@ -107,4 +107,43 @@ final class JsonlTailerBackfillTests: XCTestCase {
 
         XCTAssertEqual(collect(url, startAtBeginning: true), ["done"])
     }
+
+    // MARK: read(2) 的三种结局
+
+    /// EINTR 是"被信号打断、一个字节都没读到"，必须原地重试。
+    /// 回扫历史文件时 watch 里这次同步读取是唯一时机（DispatchSource 只在 .write 触发），
+    /// 把 EINTR 当 EOF 就等于永久丢掉该文件的剩余部分。
+    func testBackfillRetriesAfterEINTR() throws {
+        let url = dir.appendingPathComponent("eintr.jsonl")
+        try "a\nb\nc\n".write(to: url, atomically: true, encoding: .utf8)
+
+        var interruptions = 0
+        tailer.readBytes = { fd, buf, count in
+            if interruptions < 2 {          // 前两次读取都被信号打断
+                interruptions += 1
+                errno = EINTR
+                return -1
+            }
+            return read(fd, buf, count)
+        }
+
+        XCTAssertEqual(collect(url, startAtBeginning: true), ["a", "b", "c"])
+        XCTAssertEqual(interruptions, 2)
+    }
+
+    /// EINTR 之外的错误没有重试价值，直接退出本轮循环（不能无限自旋）。
+    func testBackfillStopsOnNonEINTRError() throws {
+        let url = dir.appendingPathComponent("eio.jsonl")
+        try "a\nb\n".write(to: url, atomically: true, encoding: .utf8)
+
+        var calls = 0
+        tailer.readBytes = { _, _, _ in
+            calls += 1
+            errno = EIO
+            return -1
+        }
+
+        XCTAssertEqual(collect(url, startAtBeginning: true), [])
+        XCTAssertEqual(calls, 1)
+    }
 }

@@ -26,6 +26,13 @@ final class JsonlTailer {
     /// 读到一行完整 JSON 时回调
     var onLine: ((URL, String) -> Void)?
 
+    /// `read(2)` 的可替换入口。生产路径就是系统调用本身；
+    /// 存在的唯一理由是让测试能注入 EINTR——普通文件上信号打断几乎无法自然触发，
+    /// 而它恰恰是回扫路径上最危险的一种失败。
+    var readBytes: (Int32, UnsafeMutableRawPointer?, Int) -> Int = { fd, buf, count in
+        read(fd, buf, count)
+    }
+
     private var descriptors: [URL: Int32] = [:]
     private var sources: [URL: DispatchSourceFileSystemObject] = [:]
     private var offsets: [URL: Int64] = [:]
@@ -116,8 +123,23 @@ final class JsonlTailer {
 
         while offset < currentSize {
             let want = Int(min(Int64(chunkSize), currentSize - offset))
-            let got = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, want) }
-            guard got > 0 else { break }
+            var err: Int32 = 0
+            let got = buffer.withUnsafeMutableBytes { raw -> Int in
+                let n = readBytes(fd, raw.baseAddress, want)
+                if n < 0 { err = errno }   // 紧邻 read 取 errno，避免被后续调用覆盖
+                return n
+            }
+            // read(2) 有三种结局，不能混为一谈：
+            // - got < 0 且 EINTR：被信号打断，什么都没读到，原地重试（不推进 offset）。
+            //   回扫历史文件时 startWatching 里这一次同步读取是唯一时机
+            //   （DispatchSource 只在 .write 时才触发），放弃就是永久丢数据。
+            // - got < 0 其他 errno：真的读不动了，放弃本轮。
+            // - got == 0：EOF。
+            if got < 0 {
+                if err == EINTR { continue }
+                break
+            }
+            if got == 0 { break }
             offset += Int64(got)
 
             pending.append(contentsOf: buffer[0..<got])
