@@ -74,7 +74,7 @@ struct CodexAdapter: AgentAdapter {
         // total 直取文件值；reasoning 已含在 output 内，回退式才用它。
         let fileTotal = usage["total_tokens"] as? Int
         let bucketSum = nonCachedInput + cached + output
-        let total = fileTotal ?? (nonCachedInput + cached + output + reasoning)
+        let total = fileTotal ?? bucketSum
         // 差额进 extraTotal，保证 TokenCounts.total 与文件一致
         let extra = max(0, total - bucketSum)
 

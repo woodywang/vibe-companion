@@ -76,6 +76,23 @@ final class CodexAdapterTests: XCTestCase {
         XCTAssertEqual(e.counts.extraTotal, 0)
     }
 
+    private func tokenCountNoTotal(input: Int, cached: Int, output: Int, reasoning: Int) -> String {
+        """
+        {"timestamp":"2026-07-16T13:16:40.694Z","type":"event_msg",
+         "payload":{"type":"token_count","info":{
+           "last_token_usage":{"input_tokens":\(input),"cached_input_tokens":\(cached),
+             "output_tokens":\(output),"reasoning_output_tokens":\(reasoning)}}}}
+        """
+    }
+
+    /// total_tokens 缺失且 reasoning > 0 时，回退式不得把 reasoning 重复计入
+    /// （reasoning_output_tokens 已含在 output_tokens 内）
+    func testTotalFallsBackWithoutDoubleCountingReasoningWhenFileTotalMissing() {
+        let e = parse(tokenCountNoTotal(input: 100, cached: 0, output: 20, reasoning: 15))!
+        XCTAssertEqual(e.counts.total, 120)          // 100 + 0 + 20，不含 reasoning
+        XCTAssertEqual(e.counts.extraTotal, 0)
+    }
+
     func testAgentId() {
         XCTAssertEqual(parse(tokenCount(input: 1, cached: 0, output: 1,
                                         reasoning: 0, total: 2))!.agent, "codex")
