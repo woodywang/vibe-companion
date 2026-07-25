@@ -1,5 +1,24 @@
 import Foundation
 
+/// 按字节切分行，保留末尾不完整的片段（可能是半行，或被截断的多字节字符）。
+/// 纯逻辑、无副作用：不做 UTF-8 解码，只在原始字节层面查找 `\n`（0x0A）。
+enum LineSplitter {
+    static func split(_ buffer: Data) -> (lines: [Data], rest: Data) {
+        let nl = UInt8(ascii: "\n")
+        var lines: [Data] = []
+        var start = buffer.startIndex
+        var i = buffer.startIndex
+        while i < buffer.endIndex {
+            if buffer[i] == nl {
+                if i > start { lines.append(buffer.subdata(in: start..<i)) }
+                start = buffer.index(after: i)
+            }
+            i = buffer.index(after: i)
+        }
+        return (lines, buffer.subdata(in: start..<buffer.endIndex))
+    }
+}
+
 /// 监听 JSONL 文件增长，自维护 byte offset 游标。
 /// 启动时定位到 EOF（不回溯历史），之后用 DispatchSource 监听写入事件。
 final class JsonlTailer {
@@ -9,6 +28,8 @@ final class JsonlTailer {
     private var descriptors: [URL: Int32] = [:]
     private var sources: [URL: DispatchSourceFileSystemObject] = [:]
     private var offsets: [URL: Int64] = [:]
+    /// 每个文件尚未凑成完整行的剩余字节（半行或被截断的多字节字符）
+    private var partials: [URL: Data] = [:]
     private let queue = DispatchQueue(label: "vibe.tailer")
 
     /// 开始监听一个文件。若 offset 未记录，定位到 EOF。
@@ -73,6 +94,7 @@ final class JsonlTailer {
         if offset > currentSize {
             // 文件被截断/轮转，从头开始
             offset = 0
+            partials[url] = Data()
         }
 
         let toRead = currentSize - offset
@@ -87,10 +109,14 @@ final class JsonlTailer {
         let data = Data(bytes: buffer, count: Int(read))
         offsets[url] = currentSize
 
-        // 按行拆分（JSONL）
-        guard let text = String(data: data, encoding: .utf8) else { return }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            onLine?(url, String(line))
+        // 按字节拆分行，跨读取保留半行/被截断的多字节字符
+        let combined = (partials[url] ?? Data()) + data
+        let (lines, rest) = LineSplitter.split(combined)
+        partials[url] = rest
+        for line in lines {
+            if let text = String(data: line, encoding: .utf8) {
+                onLine?(url, text)
+            }
         }
     }
 }
