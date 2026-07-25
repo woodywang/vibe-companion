@@ -54,6 +54,9 @@ export interface LeaderboardEntry {
   rank: number;
   userId: string;
   displayName: string;
+  // NOTE: intentionally the WEIGHTED token sum (input+output+cacheCreation+reasoning,
+  // excludes cacheRead), not the raw totalTokens column. Kept the "totalTokens" name to
+  // preserve the API shape — do not swap in raw totalTokens / reintroduce cacheRead here.
   totalTokens: number;
   costUsd: number;
 }
@@ -63,6 +66,9 @@ export async function globalLeaderboard(fromMs: number, toMs: number, limit = 10
   const rows = await db
     .select({
       userId: schema.usageEvents.userId,
+      // Aliased as "total_tokens" for API-shape compatibility, but this SUMs weightedTokens
+      // (input+output+cacheCreation+reasoning, excludes cacheRead) — not the raw totalTokens
+      // column. Keep it weighted; don't reintroduce cacheRead here.
       totalTokens: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("total_tokens"),
       costUsd: sql<number>`SUM(${schema.usageEvents.costUsd})`.as("cost_usd"),
     })

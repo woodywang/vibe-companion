@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     period: parsed.data.period,
     daily,
-    todayTotal: daily.find((d) => d.date === new Date().toISOString().slice(0, 10))?.totalTokens ?? 0,
+    todayTotal: daily.find((d) => d.date === new Date().toISOString().slice(0, 10))?.weightedTokens ?? 0,
     tokensPerMinute: tokensLast60s,
     clients,
   });
