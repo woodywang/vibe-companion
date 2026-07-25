@@ -107,6 +107,52 @@ final class PricingStoreTests: XCTestCase {
         XCTAssertNil(store.pricing(for: "nope"))
     }
 
+    // MARK: - 记忆化
+
+    /// 重复查询（含走模糊查表的与未命中的）结果必须稳定
+    func testMemoizationDoesNotChangeResults() {
+        let store = PricingStore(builtinSnapshot: ["claude-sonnet-4-5-20250929": entry(3e-6)],
+                                 cache: FakeCache(),
+                                 fetcher: FakeFetcher(result: .failure(BoomError())))
+        // 走模糊查表：不是精确 key
+        for _ in 0..<3 {
+            XCTAssertEqual(store.pricing(for: "claude-sonnet-4-5")!.input, 3e-6, accuracy: eps)
+        }
+        // 负结果同样被记住，且始终是 nil
+        for _ in 0..<3 { XCTAssertNil(store.pricing(for: "totally-unknown")) }
+    }
+
+    /// refresh 换掉整张表后，记忆化必须一并失效
+    func testMemoizationIsInvalidatedByRefresh() async {
+        let store = PricingStore(builtinSnapshot: ["model-a": entry(1e-6)],
+                                 cache: FakeCache(),
+                                 fetcher: FakeFetcher(result: .success(["model-a": entry(9e-6)])))
+        XCTAssertEqual(store.pricing(for: "model-a")!.input, 1e-6, accuracy: eps)  // 先记住旧值
+        await store.refresh()
+        XCTAssertEqual(store.pricing(for: "model-a")!.input, 9e-6, accuracy: eps)
+    }
+
+    /// refresh 后原本未命中的模型若已进表，必须能查到（负结果也要失效）
+    func testMemoizedMissIsInvalidatedByRefresh() async {
+        let store = PricingStore(builtinSnapshot: [:],
+                                 cache: FakeCache(),
+                                 fetcher: FakeFetcher(result: .success(["model-z": entry(4e-6)])))
+        XCTAssertNil(store.pricing(for: "model-z"))
+        await store.refresh()
+        XCTAssertEqual(store.pricing(for: "model-z")!.input, 4e-6, accuracy: eps)
+    }
+
+    /// 记忆化字典有容量上限，畸形输入撑不成内存泄漏
+    func testMemoizationIsBounded() {
+        let store = PricingStore(builtinSnapshot: ["model-a": entry(1e-6)],
+                                 cache: FakeCache(),
+                                 fetcher: FakeFetcher(result: .failure(BoomError())))
+        for i in 0..<2000 { _ = store.pricing(for: "junk-\(i)") }
+        // 撑爆上限后仍必须给出正确答案
+        XCTAssertEqual(store.pricing(for: "model-a")!.input, 1e-6, accuracy: eps)
+        XCTAssertNil(store.pricing(for: "junk-0"))
+    }
+
     // MARK: - 线程安全
 
     /// TSan 回归哨兵：复刻生产时序——`AppCoordinator.start()` 里
