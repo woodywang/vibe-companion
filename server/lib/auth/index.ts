@@ -1,10 +1,9 @@
 import { hash, compare } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { hashClientToken } from "./token";
+import { assertAuthSecret } from "./secret";
 
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET ?? "dev-secret-change-me-in-production"
-);
+const secret = new TextEncoder().encode(assertAuthSecret(process.env));
 
 export const SESSION_COOKIE = "vc_session";
 
