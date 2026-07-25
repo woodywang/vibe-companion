@@ -20,7 +20,10 @@ let package = Package(
         .testTarget(
             name: "VibeCompanionTests",
             dependencies: ["VibeCompanion"],
-            path: "VibeCompanion/Tests"
+            path: "VibeCompanion/Tests",
+            resources: [
+                .copy("Fixtures/claude-golden.jsonl")
+            ]
         )
     ]
 )
