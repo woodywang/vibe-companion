@@ -1,27 +1,9 @@
 import { NextRequest } from "next/server";
-import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { resolveClient, jsonError } from "@/lib/auth/client";
 import { estimateCost, UsageEventInput } from "@/lib/usage/types";
+import { bodySchema } from "@/lib/usage/schema";
 import { nanoid } from "nanoid";
-
-const eventSchema = z.object({
-  agent: z.enum(["claude", "codex"]),
-  sessionId: z.string().max(255).nullable().optional(),
-  model: z.string().max(255).nullable().optional(),
-  inputTokens: z.number().int().min(0),
-  outputTokens: z.number().int().min(0),
-  cacheCreationTokens: z.number().int().min(0),
-  cacheReadTokens: z.number().int().min(0),
-  reasoningTokens: z.number().int().min(0),
-  totalTokens: z.number().int().min(0),
-  recordedAt: z.number().int(),
-  sourceUuid: z.string().min(1).max(255),
-});
-
-const bodySchema = z.object({
-  events: z.array(eventSchema).min(1).max(500),
-});
 
 export async function POST(req: NextRequest) {
   const resolved = await resolveClient(req);
