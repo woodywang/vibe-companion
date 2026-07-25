@@ -10,8 +10,8 @@ final class TokenAggregatorTests: XCTestCase {
                    totalTokens: total, recordedAt: ms)
     }
 
-    func testWeightedExcludesCacheRead() {
-        XCTAssertEqual(ev(total: 100, weightedInput: 10, at: 0).weightedTokens, 10)
+    func testEffectiveExcludesCacheRead() {
+        XCTAssertEqual(ev(total: 100, weightedInput: 10, at: 0).effectiveTokens, 10)
     }
 
     func testTodayResetsAcrossDay() {

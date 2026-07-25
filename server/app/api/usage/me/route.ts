@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { db, schema } from "@/lib/db";
-import { dailyTotalsForUser, periodRange } from "@/lib/usage/queries";
-import { eq, sql } from "drizzle-orm";
+import { dailyTotalsForUser, periodRange, effectiveTokensSinceForUser } from "@/lib/usage/queries";
+import { eq } from "drizzle-orm";
 
 const query = z.object({
   period: z.enum(["today", "week", "month"]).default("week"),
@@ -31,16 +31,10 @@ export async function GET(req: NextRequest) {
 
   const daily = await dailyTotalsForUser(user.id, fromMs, toMs);
 
-  // 今日实时总量 + 当前速率（最近 60s）
+  // 今日实时总量 + 当前速率（最近 60s，effective 口径排除 cache_read）
   const now = Date.now();
   const since60s = now - 60_000;
-  const recent = await db
-    .select({
-      total: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("total"),
-    })
-    .from(schema.usageEvents)
-    .where(sql`${schema.usageEvents.userId} = ${user.id} AND ${schema.usageEvents.recordedAt} >= ${since60s}`);
-  const tokensLast60s = Number(recent[0]?.total ?? 0);
+  const tokensLast60s = await effectiveTokensSinceForUser(user.id, since60s);
 
   // 设备列表
   const clients = await db
@@ -57,7 +51,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     period: parsed.data.period,
     daily,
-    todayTotal: daily.find((d) => d.date === new Date().toISOString().slice(0, 10))?.weightedTokens ?? 0,
+    todayTotal: daily.find((d) => d.date === new Date().toISOString().slice(0, 10))?.totalTokens ?? 0,
     tokensPerMinute: tokensLast60s,
     clients,
   });

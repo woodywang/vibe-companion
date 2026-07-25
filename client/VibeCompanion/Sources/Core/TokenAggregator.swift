@@ -32,11 +32,12 @@ final class TokenAggregator: ObservableObject {
     func ingest(_ event: UsageEvent) {
         rolloverIfNeeded()
         let t = now()
-        window.append(Sample(timestamp: t, tokens: event.weightedTokens))
+        // 速率窗口用 effective（排除 cache_read），避免 prompt cache 命中导致天文数字
+        window.append(Sample(timestamp: t, tokens: event.effectiveTokens))
 
-        // 今日累计（按本地日期判断，与当前日期键比较）
+        // 今日累计保留 total 口径（含 cache_read，与后端一致）；跨零点由 rolloverIfNeeded 清零
         let eventDay = TokenAggregator.dayKey(Date(timeIntervalSince1970: TimeInterval(event.recordedAt) / 1000))
-        if eventDay == currentDayKey { todayTotal += event.weightedTokens }
+        if eventDay == currentDayKey { todayTotal += event.totalTokens }
 
         recompute(now: t)
     }

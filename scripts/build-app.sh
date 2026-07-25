@@ -69,5 +69,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# 复制 Lottie 动画资源到 bundle（SwiftPM 的 bundle resources 会嵌进二进制，
+# 但 lottie-ios 的 LottieAnimationView(name:bundle:.main) 从 .app/Resources 读取更可靠）
+cp -R "$CLIENT/VibeCompanion/Resources/Animations" "$APP_BUNDLE/Contents/Resources/Animations"
+
 echo "==> Done: $APP_BUNDLE"
 echo "    打开: open \"$APP_BUNDLE\""

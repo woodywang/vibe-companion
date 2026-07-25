@@ -61,10 +61,10 @@ JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAg
 
 - `TokenAggregator` 维护 60 秒滑动窗口（`[Sample(timestamp, tokens)]`）。
 - 每 2 秒清理过期样本并重算 `tokensPerMinute = Σ window.tokens`。
-- 该值驱动悬浮宠物窗（纯 SwiftUI `Canvas` 绘制，见 `CyclingPetView.swift`）的轮子转速 `CyclingPet.revolutionsPerSecond(speed:)`：
+- 该值驱动悬浮宠物窗的 `LottieAnimationView.animationSpeed`：
   - 0 -> 打盹状态（静态 😴）
-  - 8000 tokens/min -> 1.0x 标准速度（1 圈/秒）
-  - 范围 clamp 在 [0.25, 4.0] 圈/秒
+  - 8000 tokens/min -> 1.0x 标准速度
+  - 范围 clamp 在 [0.25, 4.0]
 
 ### 5. 上传
 

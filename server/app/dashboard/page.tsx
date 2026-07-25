@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import { dailyTotalsForUser, periodRange, globalLeaderboard } from "@/lib/usage/queries";
+import { dailyTotalsForUser, periodRange, globalLeaderboard, effectiveTokensSinceForUser } from "@/lib/usage/queries";
 import { db, schema } from "@/lib/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { ClientManager } from "@/components/ClientManager";
 import { fmtTokens, fmtCost, fmtRate, fmtRelative, fmtDate } from "@/lib/ui/format";
 
@@ -16,16 +16,12 @@ export default async function DashboardPage() {
   const { fromMs, toMs } = periodRange("week");
   const daily = await dailyTotalsForUser(user.id, fromMs, toMs);
 
-  // 今日总量 + 最近 60s 速率
+  // 今日总量 + 最近 60s 速率（effective 口径，排除 cache_read）
   const now = Date.now();
   const since60s = now - 60_000;
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayRow = daily.find((d) => d.date === todayKey);
-  const recent = await db
-    .select({ total: sql<number>`SUM(${schema.usageEvents.weightedTokens})` })
-    .from(schema.usageEvents)
-    .where(sql`${schema.usageEvents.userId} = ${user.id} AND ${schema.usageEvents.recordedAt} >= ${since60s}`);
-  const tokensPerMin = Number(recent[0]?.total ?? 0);
+  const tokensPerMin = await effectiveTokensSinceForUser(user.id, since60s);
 
   // 设备列表
   const clients = await db
@@ -46,9 +42,9 @@ export default async function DashboardPage() {
   const lb = await globalLeaderboard(todayRange.fromMs, todayRange.toMs, 1000);
   const myRank = lb.find((e) => e.userId === user.id)?.rank ?? null;
 
-  const weekTotal = daily.reduce((s, d) => s + d.weightedTokens, 0);
+  const weekTotal = daily.reduce((s, d) => s + d.totalTokens, 0);
   const weekCost = daily.reduce((s, d) => s + d.costUsd, 0);
-  const maxBar = Math.max(1, ...daily.map((d) => d.weightedTokens));
+  const maxBar = Math.max(1, ...daily.map((d) => d.totalTokens));
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -74,7 +70,7 @@ export default async function DashboardPage() {
           accent={tokensPerMin > 0 ? "active" : "idle"}
           hint={rateHint(tokensPerMin)}
         />
-        <StatCard label="今日 token" value={fmtTokens(todayRow?.weightedTokens ?? 0)} icon="🔥" />
+        <StatCard label="今日 token" value={fmtTokens(todayRow?.totalTokens ?? 0)} icon="🔥" />
         <StatCard label="本周 token" value={fmtTokens(weekTotal)} icon="📈" />
         <StatCard label="本周花费" value={fmtCost(weekCost)} icon="💸" />
       </div>
@@ -108,11 +104,11 @@ export default async function DashboardPage() {
             )}
             {[...daily].reverse().map((d) => (
               <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
-                <div className="text-[10px] text-stone-400">{fmtTokens(d.weightedTokens)}</div>
+                <div className="text-[10px] text-stone-400">{fmtTokens(d.totalTokens)}</div>
                 <div
                   className="w-full rounded-t bg-brand-500 transition-all hover:bg-brand-600"
-                  style={{ height: `${(d.weightedTokens / maxBar) * 100}%`, minHeight: d.weightedTokens > 0 ? 4 : 0 }}
-                  title={`${d.date}: ${fmtTokens(d.weightedTokens)} tokens / ${fmtCost(d.costUsd)}`}
+                  style={{ height: `${(d.totalTokens / maxBar) * 100}%`, minHeight: d.totalTokens > 0 ? 4 : 0 }}
+                  title={`${d.date}: ${fmtTokens(d.totalTokens)} tokens / ${fmtCost(d.costUsd)}`}
                 />
                 <div className="text-[10px] text-stone-400">{fmtDate(d.date)}</div>
               </div>

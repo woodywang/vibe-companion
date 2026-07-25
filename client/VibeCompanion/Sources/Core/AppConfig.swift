@@ -16,7 +16,7 @@ enum AppConfig {
     /// 速率聚合窗口（秒）
     static let rateWindowSeconds: TimeInterval = 60
 
-    /// token/min -> SwiftUI 蹬车宠物动画速度映射
+    /// token/min -> Lottie animationSpeed 映射
     static func animationSpeed(tokensPerMinute: Double) -> Double {
         // 8000 tokens/min -> 1.0x；下限 0.25，上限 4.0
         let raw = tokensPerMinute / 8000.0

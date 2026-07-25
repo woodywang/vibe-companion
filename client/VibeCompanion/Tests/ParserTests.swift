@@ -13,7 +13,7 @@ final class ParserTests: XCTestCase {
         let ev = ClaudeParser.parse(obj)
         XCTAssertEqual(ev?.sourceUuid, "abc")
         XCTAssertEqual(ev?.totalTokens, 135)
-        XCTAssertEqual(ev?.weightedTokens, 35)
+        XCTAssertEqual(ev?.effectiveTokens, 35)
     }
     func testClaudeIgnoresNonAssistant() {
         XCTAssertNil(ClaudeParser.parse(["type": "user"]))

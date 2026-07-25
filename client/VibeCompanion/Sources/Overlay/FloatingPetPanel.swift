@@ -38,7 +38,7 @@ struct FloatingPetContent: View {
                 Text("😴")
                     .font(.system(size: 64))
             } else {
-                CyclingPetView(speed: speed)
+                LottiePetView(animationName: "cycling_pet", speed: speed)
                     .frame(width: 140, height: 140)
             }
 

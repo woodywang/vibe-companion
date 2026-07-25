@@ -62,7 +62,6 @@ export const usageEvents = sqliteTable(
     cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
     reasoningTokens: integer("reasoning_tokens").notNull().default(0),
     totalTokens: integer("total_tokens").notNull().default(0),
-    weightedTokens: integer("weighted_tokens").notNull().default(0),
     costUsd: real("cost_usd").notNull().default(0),
     recordedAt: integer("recorded_at").notNull(), // ms epoch, 来自客户端时间戳
     sourceUuid: text("source_uuid").notNull(),

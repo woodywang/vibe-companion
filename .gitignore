@@ -31,8 +31,16 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Worktrees
+# Worktrees（Claude Code 内部机制，不入库）
 .worktrees/
+.claude/worktrees/
+.claude/settings.local.json
 
 # TS incremental build cache
 *.tsbuildinfo
+
+# 工具/MCP 产物（截图、预览缓存，不入库）
+.playwright-mcp/
+playwright-report/
+test-results/
+*.png.bak

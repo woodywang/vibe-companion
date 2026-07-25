@@ -9,7 +9,6 @@ export interface DailyTotal {
   cacheReadTokens: number;
   reasoningTokens: number;
   totalTokens: number;
-  weightedTokens: number;
   costUsd: number;
 }
 
@@ -24,7 +23,6 @@ export async function dailyTotalsForUser(userId: string, fromMs: number, toMs: n
       cacheReadTokens: sql<number>`SUM(${schema.usageEvents.cacheReadTokens})`.as("cache_read_tokens"),
       reasoningTokens: sql<number>`SUM(${schema.usageEvents.reasoningTokens})`.as("reasoning_tokens"),
       totalTokens: sql<number>`SUM(${schema.usageEvents.totalTokens})`.as("total_tokens"),
-      weightedTokens: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("weighted_tokens"),
       costUsd: sql<number>`SUM(${schema.usageEvents.costUsd})`.as("cost_usd"),
     })
     .from(schema.usageEvents)
@@ -45,7 +43,6 @@ export async function dailyTotalsForUser(userId: string, fromMs: number, toMs: n
     cacheReadTokens: Number(r.cacheReadTokens ?? 0),
     reasoningTokens: Number(r.reasoningTokens ?? 0),
     totalTokens: Number(r.totalTokens ?? 0),
-    weightedTokens: Number(r.weightedTokens ?? 0),
     costUsd: Number(r.costUsd ?? 0),
   }));
 }
@@ -54,9 +51,6 @@ export interface LeaderboardEntry {
   rank: number;
   userId: string;
   displayName: string;
-  // NOTE: intentionally the WEIGHTED token sum (input+output+cacheCreation+reasoning,
-  // excludes cacheRead), not the raw totalTokens column. Kept the "totalTokens" name to
-  // preserve the API shape — do not swap in raw totalTokens / reintroduce cacheRead here.
   totalTokens: number;
   costUsd: number;
 }
@@ -66,10 +60,7 @@ export async function globalLeaderboard(fromMs: number, toMs: number, limit = 10
   const rows = await db
     .select({
       userId: schema.usageEvents.userId,
-      // Aliased as "total_tokens" for API-shape compatibility, but this SUMs weightedTokens
-      // (input+output+cacheCreation+reasoning, excludes cacheRead) — not the raw totalTokens
-      // column. Keep it weighted; don't reintroduce cacheRead here.
-      totalTokens: sql<number>`SUM(${schema.usageEvents.weightedTokens})`.as("total_tokens"),
+      totalTokens: sql<number>`SUM(${schema.usageEvents.totalTokens})`.as("total_tokens"),
       costUsd: sql<number>`SUM(${schema.usageEvents.costUsd})`.as("cost_usd"),
     })
     .from(schema.usageEvents)
@@ -94,6 +85,24 @@ export async function globalLeaderboard(fromMs: number, toMs: number, limit = 10
     totalTokens: Number(r.totalTokens ?? 0),
     costUsd: Number(r.costUsd ?? 0),
   }));
+}
+
+// 有效消耗 token：用于速率展示，排除 prompt cache 读取复用（cache_read）。
+// cache_read 在 Claude Code 中常占 total 的 90%+ 且计费仅 1/10，计入速率会
+// 产生天文数字且与"真实消耗速度"脱节。effective = input + output + cache_creation。
+export async function effectiveTokensSinceForUser(userId: string, sinceMs: number): Promise<number> {
+  const rows = await db
+    .select({
+      total: sql<number>`SUM(${schema.usageEvents.inputTokens} + ${schema.usageEvents.outputTokens} + ${schema.usageEvents.cacheCreationTokens})`.as("total"),
+    })
+    .from(schema.usageEvents)
+    .where(
+      and(
+        eq(schema.usageEvents.userId, userId),
+        gte(schema.usageEvents.recordedAt, sinceMs)
+      )
+    );
+  return Number(rows[0]?.total ?? 0);
 }
 
 // 时间窗 helper
