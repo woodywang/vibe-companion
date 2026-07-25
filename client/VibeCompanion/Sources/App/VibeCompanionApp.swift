@@ -58,7 +58,7 @@ final class AppCoordinator: ObservableObject {
 
     private func start() {
         // 采集器 -> 聚合器
-        let c = Collector()
+        let c = Collector(backfillWindowHours: AppConfig.backfillWindowHours)
         c.onEntry = { [weak self] entry in
             Task { @MainActor in
                 guard let self, !self.isPaused else { return }

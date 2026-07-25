@@ -46,6 +46,8 @@ final class Collector {
     /// 提供的串行性，现在由这条队列提供。
     private let scanQueue = DispatchQueue(label: "vibe.collector.scan")
 
+    /// - Parameter backfillWindowHours: 生产调用方须传 `AppConfig.backfillWindowHours`
+    ///   （见 `AppCoordinator.start()`）；这里的字面量默认值只服务于测试。
     init(adapters: [AgentAdapter] = [ClaudeAdapter(), CodexAdapter()],
          backfillWindowHours: Double = 6,
          now: @escaping () -> Date = { Date() }) {
