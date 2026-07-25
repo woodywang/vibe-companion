@@ -105,6 +105,47 @@ final class CollectorTests: XCTestCase {
         XCTAssertEqual(got[0].dedupKey, "m1:r1")
     }
 
+    /// stop() 之后再 start() 必须还能采集。
+    ///
+    /// 修复前：stop() 只清 rescanTimer 与 tailer 的 sources/descriptors，
+    /// 留着 ownerByFile/contextByFile 与 offsets/partials，于是重启后 rescan
+    /// 对每个文件都看到"已存在"、再也不 watch——静默不采集，phase2 超时。
+    func testRestartAfterStopStillCollects() throws {
+        let line = """
+        {"type":"assistant","requestId":"r1","timestamp":"2026-07-25T07:00:00.000Z",\
+        "message":{"id":"m1","model":"claude-opus-5",\
+        "usage":{"input_tokens":10,"output_tokens":20}}}
+        """
+        let url = try write(line + "\n", name: "restart.jsonl")
+        let c = Collector(adapters: [FixedFileAdapter(inner: ClaudeAdapter(roots: []),
+                                                      files: [url])],
+                          backfillWindowHours: 24 * 365,
+                          now: { Date(timeIntervalSince1970: 1_784_966_400) })
+
+        let phase1 = expectation(description: "首次 start 采到")
+        phase1.assertForOverFulfill = false
+        let phase2 = expectation(description: "stop 后再 start 仍能采到")
+        phase2.assertForOverFulfill = false
+        // onEntry 从 tailer 队列回调，计数需自带同步
+        let lock = NSLock()
+        var n = 0
+        c.onEntry = { _ in
+            lock.lock(); n += 1; let k = n; lock.unlock()
+            if k == 1 { phase1.fulfill() } else { phase2.fulfill() }
+        }
+
+        c.start()
+        wait(for: [phase1], timeout: 5)
+        c.stop()
+
+        c.start()
+        wait(for: [phase2], timeout: 5)
+        c.stop()
+
+        lock.lock(); let final = n; lock.unlock()
+        XCTAssertGreaterThanOrEqual(final, 2)
+    }
+
     /// 包装器：在 discoverFiles 里睡一觉，模拟"回扫是几百毫秒文件 I/O"
     private struct SlowDiscoverAdapter: AgentAdapter {
         let inner: AgentAdapter

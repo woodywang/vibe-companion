@@ -50,13 +50,19 @@ final class JsonlTailer {
         }
     }
 
-    /// 停止所有监听
+    /// 停止所有监听，并把状态清回"从未 watch 过"。
+    ///
+    /// `offsets` / `partials` 也要清：留着的话再次 `watch` 同一个文件时会沿用旧游标，
+    /// 而调用方期望的是一次全新的开始（`startAtBeginning` 会被 `offsets[url] != nil`
+    /// 的判断整个绕过），半行残留还会污染重启后的第一批数据。
     func stopAll() {
         queue.sync {
             for (_, src) in sources { src.cancel() }
             for (_, fd) in descriptors { close(fd) }
             sources.removeAll()
             descriptors.removeAll()
+            offsets.removeAll()
+            partials.removeAll()
         }
     }
 

@@ -71,10 +71,27 @@ final class Collector {
         }
     }
 
+    /// 停止采集，并把状态清回"从未 start 过"。
+    ///
+    /// 必须清空 `ownerByFile` / `contextByFile`：留着的话再次 `start()` 时
+    /// `rescan()` 对每个文件都看到"已存在"，于是再也不调 `watch`——采集器静默失效。
+    ///
+    /// `scanQueue.sync` 是为了等在飞的 rescan 收工。首轮扫描现在跑在后台，
+    /// 不等它就可能出现"清空之后又被登记回去"，stop 完还在 watch。
+    /// 注意由此得出的约束：**不得从 `scanQueue` 上调用 `stop()`**（自死锁）。
+    ///
+    /// 锁序：`stopAll`（进出 tailer 队列）与 `mapsLock` 是**先后**关系而非嵌套，
+    /// 没有引入新的等待环。
     func stop() {
         rescanTimer?.invalidate()
         rescanTimer = nil
-        tailer.stopAll()
+        scanQueue.sync {
+            tailer.stopAll()
+            mapsLock.lock()
+            ownerByFile.removeAll()
+            contextByFile.removeAll()
+            mapsLock.unlock()
+        }
     }
 
     /// 该文件是否需要从头回扫。
