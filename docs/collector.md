@@ -35,8 +35,7 @@
 ## 工作机制
 
 ```
-JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAggregator (速率)
-                                              └──────> UsageStore (SQLite 队列) ──> Uploader ──> 后端
+JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAggregator (速率) ──> 速度表 / 菜单栏
 ```
 
 ### 1. 文件发现与监听
@@ -53,25 +52,32 @@ JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAg
 
 ### 3. 去重
 
-- **本地**：`UsageStore.enqueue` 按 `source_uuid` 去重（SQLite `COUNT` 检查）。
-- **服务端**：`usage_events` 表 `UNIQUE(client_id, source_uuid)` 约束，重复上传返回 `duplicates` 计数而非报错。
-- 双层去重保证：客户端崩溃重试、网络重传都不会产生重复数据。
+- 每条事件带 `source_uuid`（Claude 用行内 `uuid`，Codex 用 `sessionId + timestamp`）。
+- 当前数据只进内存聚合器，无持久化队列；`source_uuid` 保留给后续的本地历史存储使用。
+- **注意**：Claude Code 会把一条 assistant 响应写成多个 `type:assistant` 行（流式增量 + 最终态），它们共享同一 `uuid`。
 
 ### 4. 速率聚合
 
-- `TokenAggregator` 维护 60 秒滑动窗口（`[Sample(timestamp, tokens)]`）。
-- 每 2 秒清理过期样本并重算 `tokensPerMinute = Σ window.tokens`。
-- 该值驱动悬浮宠物窗的 `LottieAnimationView.animationSpeed`：
-  - 0 -> 打盹状态（静态 😴）
-  - 8000 tokens/min -> 1.0x 标准速度
-  - 范围 clamp 在 [0.25, 4.0]
+采用 ccusage v20 的 **session block burn rate** 算法（参考 `rust/crates/ccusage/src/blocks.rs`）。
 
-### 5. 上传
+- `UsageWindow` 维护最近 **6 小时**的原始 entry，按 **entry 自身的 timestamp**（不是到达时间）有序插入。
+- 去重键是 `messageId:requestId`（**不是**行内 `uuid`），且为**替换**语义：非 sidechain > token 总量大 > 带 speed 字段。实测去重掉约 56% 的行。
+- 每 2 秒把窗口快照切成 **5 小时计费块**：起点 floor 到 UTC 整点；`距块起点 > 5h` 或 `距上条 > 5h` 开新块（均为严格大于），后者额外插入 gap 伪块。
+- 活跃块的 burn rate = `TokenCounts.total ÷ (末条 entry − 首条 entry)` 分钟数。**Total 含 cache_read**。
+- 另有 `tokensPerMinuteForIndicator`（仅 input + output），按阈值 2000/5000 映射为 Normal/Moderate/High，显示在菜单栏。
+- cost 按 entry 逐条计价后求和；定价来自内置 LiteLLM 快照 → 硬编码覆盖 → 磁盘缓存(24h) → 线上抓取。
 
-- `Uploader` 每 20 秒或缓冲达 50 条时触发。
-- `fetchPending` 取一批并原子标记为 `uploading`（防止并发重复取）。
-- 成功 -> 删除；失败 -> 回退 `pending` 并 `attempts+1`。
-- 离线时数据持续在本地 SQLite 累积，联网后自动补传。
+#### 与 ccusage 的偏离
+
+| 项 | ccusage | 本实现 | 理由 |
+|---|---|---|---|
+| 空闲 | 速率冻结至块失活 | 距末条 entry > 90s 归零 | 常驻仪表需要"熄火"反馈 |
+| 定价缓存 | 无磁盘缓存 | 磁盘缓存 TTL 24h | 桌面应用频繁重启 |
+| indicator 用途 | 驱动配色徽章 | 菜单栏文字 | 表盘配色与指针角度须同源 |
+| 内存范围 | 全量读入 | 仅最近 6 小时 | 常驻进程不能无界增长 |
+| cost 模式 | auto/calculate/display | 固定 calculate | JSONL 中无 `costUSD` 字段 |
+
+以上偏离均**不改变数值**。速度表量程（线性/对数/自适应）由用户在设置中选择，与算法完全解耦。
 
 ## 延迟特性
 
@@ -81,4 +87,4 @@ JsonlTailer ──(新增行)──> Collector ──(UsageEvent)──> TokenAg
 
 ## 参考实现
 
-`ccusage`（`npx ccusage`）是同类工具，解析相同的 JSONL 文件，但它是「全量重扫」模式，无增量游标。本采集器的增量 tail 设计使其适合常驻低开销运行。
+`ccusage`（`npx ccusage`）是同类工具，解析相同的 JSONL 文件。本实现回扫最近 6 小时的历史以热启动，之后转为增量 tail；与全量重扫的偏离在于回扫范围有界且后续转增量，这使其适合常驻低开销运行。
