@@ -25,29 +25,13 @@ struct MenuBarContent: View {
             // 今日累计
             section {
                 statRow(label: "今日累计", value: formatTokens(coordinator.aggregator.todayTotal))
-                statRow(label: "待上传", value: "\(coordinator.pendingCount) 条")
-                statRow(label: "上传状态", value: statusText(coordinator.uploadStatus))
             }
 
             Divider()
 
-            // 注册状态
-            if Settings.shared.isRegistered {
-                Button("查看网站看板") {
-                    if let url = URL(string: "\(Settings.shared.apiBase)/dashboard") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                Button("查看全网排行") {
-                    if let url = URL(string: "\(Settings.shared.apiBase)/leaderboard") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-            }
-
             // 暂停/恢复
-            Button(Settings.shared.isPaused ? "▶ 恢复采集" : "⏸ 暂停采集") {
-                Settings.shared.isPaused.toggle()
+            Button(coordinator.isPaused ? "▶ 恢复采集" : "⏸ 暂停采集") {
+                coordinator.isPaused.toggle()
             }
             .keyboardShortcut("p")
 
@@ -95,14 +79,5 @@ struct MenuBarContent: View {
         if n < 1000 { return "\(n)" }
         if n < 1_000_000 { return String(format: "%.1fk", Double(n) / 1000) }
         return String(format: "%.2fM", Double(n) / 1_000_000)
-    }
-
-    private func statusText(_ s: Uploader.Status) -> String {
-        switch s {
-        case .idle: return "空闲"
-        case .uploading: return "上传中…"
-        case .success(let n): return "已上传 \(n)"
-        case .failed: return "上传失败"
-        }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// 应用根：菜单栏 + 悬浮宠物窗 + 后台采集/上传协调
+/// 应用根：菜单栏 + 悬浮宠物窗 + 后台采集协调
 @main
 struct VibeCompanionApp: App {
     @StateObject private var coordinator = AppCoordinator()
@@ -10,11 +10,11 @@ struct VibeCompanionApp: App {
         MenuBarExtra {
             MenuBarContent(coordinator: coordinator)
         } label: {
-            // 菜单栏图标随速率变色
+            // 固定图标：速率变化由悬浮速度表呈现，菜单栏保持安静
             Label {
                 Text("Vibe Companion")
             } icon: {
-                coordinator.menuBarIcon
+                Image(systemName: "gauge.with.dots.needle.67percent")
             }
         }
         .menuBarExtraStyle(.window)
@@ -27,63 +27,36 @@ struct VibeCompanionApp: App {
     }
 }
 
-/// 协调采集器、聚合器、上传器、悬浮窗的生命周期
+/// 协调采集器、聚合器、悬浮窗的生命周期
 @MainActor
 final class AppCoordinator: ObservableObject {
     let aggregator = TokenAggregator()
     private(set) var collector: Collector?
-    private(set) var uploader: Uploader?
-    private var store: UsageStore?
     private var panel: FloatingPetPanel?
 
-    @Published var uploadStatus: Uploader.Status = .idle
-    @Published var pendingCount: Int = 0
+    /// 暂停后不再把新事件喂给聚合器（持久化到 UserDefaults）
+    @Published var isPaused: Bool = Settings.shared.isPaused {
+        didSet { Settings.shared.isPaused = isPaused }
+    }
 
     init() {
         start()
     }
 
     private func start() {
-        // 初始化本地存储
-        do {
-            store = try UsageStore()
-        } catch {
-            NSLog("[VC] 初始化存储失败: \(error)")
-            return
-        }
-
-        // 采集器 -> 聚合器 + 存储
+        // 采集器 -> 聚合器
         let c = Collector()
-        c.onEntry = { [weak self] event in
+        c.onEntry = { [weak self] entry in
             Task { @MainActor in
-                self?.aggregator.ingest(event)
-                try? self?.store?.enqueue(event)
-                self?.pendingCount = (try? self?.store?.pendingCount()) ?? self?.pendingCount ?? 0
+                guard let self, !self.isPaused else { return }
+                self.aggregator.ingest(entry)
             }
         }
         c.start()
         collector = c
 
-        // 上传器
-        let u = Uploader(store: store!)
-        u.onStatusChange = { [weak self] status in
-            Task { @MainActor in
-                self?.uploadStatus = status
-                self?.pendingCount = (try? self?.store?.pendingCount()) ?? self?.pendingCount ?? 0
-            }
-        }
-        u.start()
-        uploader = u
-
         // 悬浮宠物窗
         showFloatingPanel()
-
-        // 定时刷新待上传计数
-        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pendingCount = (try? self?.store?.pendingCount()) ?? self?.pendingCount ?? 0
-            }
-        }
     }
 
     private func showFloatingPanel() {
@@ -95,22 +68,5 @@ final class AppCoordinator: ObservableObject {
         p.setFrameTopLeftPoint(NSPoint(x: NSScreen.main!.frame.maxX - 200, y: NSScreen.main!.frame.maxY - 200))
         p.orderFrontRegardless()
         panel = p
-    }
-
-    /// 保存新 token 后调用：解除认证阻断并恢复自动上传（重启计时器 + 立即触发一次 flush）。
-    func resumeUploads() {
-        uploader?.resetAuthBlock()
-        uploader?.start()
-    }
-
-    /// 菜单栏图标：随速率档位变化
-    var menuBarIcon: Image {
-        switch aggregator.tokensPerMinute {
-        case 0: return Image(systemName: "moon.zzz")
-        case ..<2000: return Image(systemName: "tortoise")
-        case ..<10000: return Image(systemName: "bicycle")
-        case ..<30000: return Image(systemName: "flame")
-        default: return Image(systemName: "bolt.fill")
-        }
     }
 }
