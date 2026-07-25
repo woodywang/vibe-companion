@@ -37,6 +37,7 @@ export const clients = sqliteTable(
   },
   (t) => ({
     userIdx: index("clients_user_idx").on(t.userId),
+    tokenHashIdx: uniqueIndex("clients_token_hash_idx").on(t.clientTokenHash),
   })
 );
 

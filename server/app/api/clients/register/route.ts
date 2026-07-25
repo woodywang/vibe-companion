@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   const id = nanoid();
-  const { token, hash } = await signClientToken(id);
+  const { token, hash } = signClientToken();
   await db.insert(schema.clients)
     .values({
       id,

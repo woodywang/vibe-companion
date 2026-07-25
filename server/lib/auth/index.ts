@@ -1,5 +1,6 @@
 import { hash, compare } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
+import { hashClientToken } from "./token";
 
 const secret = new TextEncoder().encode(
   process.env.AUTH_SECRET ?? "dev-secret-change-me-in-production"
@@ -34,15 +35,9 @@ export async function verifySession(token: string): Promise<{ sub: string } | nu
   }
 }
 
-// 长期客户端 token，用于 macOS 客户端上传（不记名 JWT，校验时查 DB hash 更安全）
-export async function signClientToken(clientId: string): Promise<{ token: string; hash: string }> {
+// 长期客户端 token：随机生成，存 SHA-256，明文只返回一次。
+export function signClientToken(): { token: string; hash: string } {
   const raw = crypto.randomUUID() + "." + crypto.randomUUID();
   const token = `vc_${raw.replace(/-/g, "")}`;
-  // 存储 hash，明文只返回一次
-  const hashStr = await hash(token, 10);
-  return { token, hash: hashStr };
-}
-
-export async function verifyClientToken(token: string, storedHash: string): Promise<boolean> {
-  return compare(token, storedHash);
+  return { token, hash: hashClientToken(token) };
 }
