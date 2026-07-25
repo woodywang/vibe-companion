@@ -22,4 +22,14 @@ final class JsonlTailerTests: XCTestCase {
         XCTAssertEqual(all, ["x"])
         XCTAssertEqual(String(data: r2, encoding: .utf8), "你好")
     }
+    func testNonZeroStartIndexSlice() {
+        // A Data from suffix(from:) has a non-zero startIndex; split must use
+        // the Data's own indices, not 0-based integer indexing.
+        let full = Data("skip\nhead\ntail".utf8)
+        let slice = full.suffix(from: 5)          // startIndex == 5: "head\ntail"
+        XCTAssertNotEqual(slice.startIndex, 0)
+        let (lines, rest) = LineSplitter.split(slice)
+        XCTAssertEqual(lines.map { String(data: $0, encoding: .utf8) }, ["head"])
+        XCTAssertEqual(String(data: rest, encoding: .utf8), "tail")
+    }
 }
