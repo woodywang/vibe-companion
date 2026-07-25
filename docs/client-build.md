@@ -33,7 +33,7 @@ swift build -C client
 ## 技术栈
 
 - **SwiftPM**（`Package.swift`）管理依赖与构建，而非 `.xcodeproj`。
-- **lottie-ios**（4.6.x）：蹬车动画，`animationSpeed` 映射 token 速率。
+- **纯 SwiftUI `Canvas`**（`Sources/Overlay/CyclingPetView.swift`）：手绘蹬车动画，`CyclingPet.revolutionsPerSecond(speed:)` 将 token 速率映射为轮子转速（圈/秒）。
 - **GRDB.swift**（6.29.x）：本地 SQLite 缓冲队列。
 
 ## 首次使用
@@ -45,8 +45,9 @@ swift build -C client
 5. 修改「服务地址」指向生产后端（默认 `http://localhost:3000`）。
 6. 开始用 Claude Code / Codex CLI 编程，悬浮宠物窗随 token 速率蹬车。
 
-## 关于 Lottie 形象
+## 关于宠物形象
 
-MVP 使用 `Resources/Animations/cycling_pet.json` 作为占位蹬车动画（手写简易 JSON：橙黄色身体 + 两个旋转的轮子）。
-替换形象：将新的 Lottie JSON 放入该目录，在 `LottiePetView` 调用处改 `animationName` 即可。
-后续可扩展多档位形象（idle/慢骑/飞驰/喷火）与 Rive 状态机。
+MVP 使用纯 SwiftUI `Canvas` 手绘蹬车动画（`CyclingPetView.swift` 中的 `draw(_:size:wheelAngle:)`：橙黄色车架 + 两个旋转的轮子 + 随蹬车摆动的骑手）。
+轮速由 `CyclingPet.revolutionsPerSecond(speed:)` 决定，speed 1.0 -> 1 圈/秒，clamp 在 [0.25, 4.0]。
+替换形象：直接修改 `CyclingPetView.draw` 里的绘制逻辑即可，无需外部动画资源文件。
+后续可扩展多档位形象（idle/慢骑/飞驰/喷火）。

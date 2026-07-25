@@ -25,6 +25,7 @@ SQLite 文件不适合 serverless（无持久磁盘）。生产建议用 Turso�
    DATABASE_AUTH_TOKEN=eyJhbGciOi...
    AUTH_SECRET=<openssl rand -hex 32>
    ```
+   `AUTH_SECRET` 必须在构建和运行环境都设置：`assertAuthSecret` 在 `NODE_ENV=production` 且未设置该变量时会在模块加载时直接抛错，因此 `next build` 和运行时都会因缺失该变量而失败。
 3. 部署到 Vercel：
    ```bash
    cd server
