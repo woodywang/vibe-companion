@@ -24,6 +24,14 @@ struct ModelPricing: Equatable {
 
     /// 非 nil 时走 OpenAI 的"整请求选档"分支（由 input_tokens 单独决定档位）。
     /// Anthropic 模型为 nil，走按桶边际分段。
+    ///
+    /// **生产环境恒为 nil。** 该字段是为协议预留的：LiteLLM 数据源不提供
+    /// long-context 阈值（内置快照 416 条、79 个不同 key，无一个 `long_context*`），
+    /// `builtinPricingOverrides()` 也只覆盖三个 Anthropic 模型且都填 nil。
+    /// 因此 `calculateCost` 的整请求选档分支仅由单测覆盖。
+    ///
+    /// 不要凭空硬编码 OpenAI 的档位阈值——ccusage 用的是同一份 LiteLLM 数据源，
+    /// 那里既然没有这些 key，ccusage 也走不到那条分支；补数字反而会偏离 parity。
     let longContextThreshold: Int?
     let fastMultiplier: Double
 }
@@ -48,7 +56,7 @@ extension ModelPricing {
         self.cacheCreateAbove200k = json["cache_creation_input_token_cost_above_200k_tokens"] as? Double
         self.cacheReadAbove200k = json["cache_read_input_token_cost_above_200k_tokens"] as? Double
 
-        // Anthropic 模型不设该阈值；OpenAI 的由 builtin 覆盖表补入（Task 4）。
+        // LiteLLM 条目里没有对应的 key，恒为 nil。见字段声明处的说明。
         self.longContextThreshold = nil
 
         let providerEntry = json["provider_specific_entry"] as? [String: Any]
