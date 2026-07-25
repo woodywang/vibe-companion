@@ -10,8 +10,8 @@ struct SpeedometerView: View {
     private let center = CGPoint(x: 100, y: 100)
     private let rimRadius: CGFloat = 96
     private let dialRadius: CGFloat = 82
-    private let redlineStart: Double = 12_000   // 红线区起点 tok/min
-    private let majorValues: [Double] = [0, 4000, 8000, 12000, 16000]
+    private let redlineStart: Double = 400_000  // 红线区起点 tok/min
+    private let majorValues: [Double] = [0, 100_000, 200_000, 300_000, 400_000, 500_000]
 
     var body: some View {
         let angle = speedometerAngle(tokensPerMinute: tokensPerMinute)
@@ -61,17 +61,19 @@ struct SpeedometerView: View {
     }
 
     private var redlineArc: some View {
-        // 12k -> 16k 红色弧段
+        // 400k -> 500k（量程上限）红色弧段
         let start = Angle.degrees(speedometerAngle(tokensPerMinute: redlineStart) - 90)
-        let end = Angle.degrees(speedometerAngle(tokensPerMinute: 16000) - 90)
+        let end = Angle.degrees(speedometerAngle(tokensPerMinute: SpeedometerConfig.valueMax) - 90)
         return ArcShape(center: center, radius: 74, start: start, end: end)
             .stroke(Color(hex: 0xE5_48_4D), style: StrokeStyle(lineWidth: 7, lineCap: .round))
     }
 
     private var ticks: some View {
-        ZStack {
-            ForEach(0..<17) { i in
-                let value = Double(i) * 1000
+        // 每 50k 一根刻度，0..500k 共 11 根
+        let stepCount = Int(SpeedometerConfig.valueMax / 50_000)   // 10
+        return ZStack {
+            ForEach(0...stepCount, id: \.self) { i in
+                let value = Double(i) * 50_000
                 let isMajor = majorValues.contains(value)
                 let ang = speedometerAngle(tokensPerMinute: value)
                 TickShape(

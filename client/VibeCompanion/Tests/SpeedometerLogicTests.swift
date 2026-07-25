@@ -4,17 +4,18 @@ import XCTest
 @MainActor
 final class SpeedometerLogicTests: XCTestCase {
 
-    // 角度映射
+    // 角度映射（量程 0..500_000 tok/min）
     func testAngleAtZeroIsMin() {
         XCTAssertEqual(speedometerAngle(tokensPerMinute: 0), -135.0, accuracy: 0.001)
     }
 
-    func testAngleAt8000IsZero() {
-        XCTAssertEqual(speedometerAngle(tokensPerMinute: 8000), 0.0, accuracy: 0.001)
+    func testAngleAtMidpointIsZero() {
+        // 250_000 = 量程中点 -> 0°（正上）
+        XCTAssertEqual(speedometerAngle(tokensPerMinute: 250_000), 0.0, accuracy: 0.001)
     }
 
-    func testAngleAt16000IsMax() {
-        XCTAssertEqual(speedometerAngle(tokensPerMinute: 16000), 135.0, accuracy: 0.001)
+    func testAngleAtMax() {
+        XCTAssertEqual(speedometerAngle(tokensPerMinute: 500_000), 135.0, accuracy: 0.001)
     }
 
     // 越界 clamp

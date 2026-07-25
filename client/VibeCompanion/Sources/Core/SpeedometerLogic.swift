@@ -1,12 +1,12 @@
 import Foundation
 
 /// 速度表常量与映射逻辑（纯函数，无 UI 依赖，便于单测）。
-/// 角度约定：-135°（最左，0 tok/min）-> 0°（正上，8000 tok/min）-> +135°（最右，16000 tok/min）。
+/// 角度约定：-135°（最左，0 tok/min）-> +135°（最右，500k tok/min），线性映射。
 enum SpeedometerConfig {
     static let angleMin: Double = -135.0
     static let angleMax: Double = 135.0
-    static let valueMax: Double = 16_000.0   // 对应 1.0× 的 8000 落在 0°（中点）
-    static let idleThreshold: Double = 1.0    // tok/min 低于此值视为 idle
+    static let valueMax: Double = 500_000.0   // 量程上限 tok/min
+    static let idleThreshold: Double = 1.0     // tok/min 低于此值视为 idle
 }
 
 /// token/min -> 指针角度（度），clamp 在 [-135, 135]。
