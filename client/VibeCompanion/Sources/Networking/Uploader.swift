@@ -1,10 +1,27 @@
 import Foundation
 
+/// 网络传输抽象：便于测试注入假实现。
+protocol Transport {
+    func send(_ req: URLRequest, _ completion: @escaping (Data?, URLResponse?, Error?) -> Void)
+}
+
+extension URLSession: Transport {
+    func send(_ req: URLRequest, _ completion: @escaping (Data?, URLResponse?, Error?) -> Void) {
+        dataTask(with: req, completionHandler: completion).resume()
+    }
+}
+
 /// 上传器：定时或达阈值时把本地缓冲的用量事件批量上传到后端。
 final class Uploader {
     private let store: UsageStore
     private var timer: Timer?
-    private let session: URLSession
+    private let transport: Transport
+    private let now: () -> Date
+
+    /// 认证失败（401/403）后置为 true，停止自动上传，直到重新配置 token。
+    private(set) var authBlocked = false
+    /// 瞬时失败的指数退避：在此时间之前不再自动重试。
+    private(set) var nextRetryAt: Date?
 
     var onStatusChange: ((Status) -> Void)?
 
@@ -15,12 +32,17 @@ final class Uploader {
         case failed(message: String)
     }
 
-    init(store: UsageStore) {
+    init(store: UsageStore, transport: Transport? = nil, now: @escaping () -> Date = { Date() }) {
         self.store = store
-        let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 30
-        cfg.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: cfg)
+        self.now = now
+        if let transport {
+            self.transport = transport
+        } else {
+            let cfg = URLSessionConfiguration.default
+            cfg.timeoutIntervalForRequest = 30
+            cfg.timeoutIntervalForResource = 60
+            self.transport = URLSession(configuration: cfg)
+        }
     }
 
     func start() {
@@ -40,9 +62,20 @@ final class Uploader {
         timer = nil
     }
 
+    /// 重置认证阻断状态并恢复自动上传（例如保存新 token 后调用）。
+    func resetAuthBlock() {
+        authBlocked = false
+        nextRetryAt = nil
+        if timer == nil {
+            start()
+        }
+    }
+
     /// 触发一次上传
     func flush() {
         guard Settings.shared.isRegistered, !Settings.shared.isPaused else { return }
+        guard !authBlocked else { return }
+        if let retryAt = nextRetryAt, now() < retryAt { return }
 
         let pending: [PendingEvent]
         do {
@@ -60,16 +93,28 @@ final class Uploader {
 
         let events = pending.map { $0.toEvent() }
         let rowIds = pending.map { $0.rowid }
+        let attempts = pending.map { $0.attempts }.max() ?? 0
         upload(events: events) { [weak self] result in
             guard let self else { return }
             do {
                 switch result {
                 case .success(let resp):
                     try self.store.markUploaded(rowIds: rowIds)
+                    self.nextRetryAt = nil
                     self.onStatusChange?(.success(count: resp.inserted))
                 case .failure(let err):
                     try? self.store.markFailed(rowIds: rowIds)
-                    self.onStatusChange?(.failed(message: err.localizedDescription))
+                    let nsErr = err as NSError
+                    if nsErr.domain == "vc.auth" {
+                        self.authBlocked = true
+                        self.timer?.invalidate()
+                        self.timer = nil
+                        self.onStatusChange?(.failed(message: "认证失败，请重新注册"))
+                    } else {
+                        let backoff = min(pow(2, Double(attempts)) * 5, 300)
+                        self.nextRetryAt = self.now().addingTimeInterval(backoff)
+                        self.onStatusChange?(.failed(message: err.localizedDescription))
+                    }
                 }
             } catch {
                 self.onStatusChange?(.failed(message: "更新本地状态失败"))
@@ -97,18 +142,22 @@ final class Uploader {
             return
         }
 
-        let task = session.dataTask(with: req) { data, response, error in
+        transport.send(req) { data, response, error in
             if let error = error {
                 completion(.failure(error))
                 return
             }
-            guard let data = data,
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 401 || code == 403 {
+                completion(.failure(NSError(domain: "vc.auth", code: code)))
+                return
+            }
+            guard (200..<300).contains(code), let data = data,
                   let resp = try? JSONDecoder().decode(UsageBatchResponse.self, from: data) else {
-                completion(.failure(NSError(domain: "vc", code: 2, userInfo: [NSLocalizedDescriptionKey: "解析响应失败"])))
+                completion(.failure(NSError(domain: "vc", code: code, userInfo: [NSLocalizedDescriptionKey: "上传失败(\(code))"])))
                 return
             }
             completion(.success(resp))
         }
-        task.resume()
     }
 }

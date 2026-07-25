@@ -147,6 +147,7 @@ struct PendingEvent: FetchableRecord {
     let reasoningTokens: Int
     let totalTokens: Int
     let recordedAt: Int64
+    let attempts: Int
 
     init(row: Row) {
         rowid = row["rowid"]
@@ -161,6 +162,7 @@ struct PendingEvent: FetchableRecord {
         reasoningTokens = row["reasoning_tokens"]
         totalTokens = row["total_tokens"]
         recordedAt = row["recorded_at"]
+        attempts = row["attempts"]
     }
 
     /// 转为上传用的 UsageEvent
