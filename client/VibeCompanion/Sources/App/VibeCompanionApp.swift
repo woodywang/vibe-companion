@@ -83,8 +83,12 @@ final class AppCoordinator: ObservableObject {
             gaugeScaleID: gaugeScaleID))
         p.contentView = hosting
         p.center()
-        // 记忆上次位置（简化：默认右上角）
-        p.setFrameTopLeftPoint(NSPoint(x: NSScreen.main!.frame.maxX - 200, y: NSScreen.main!.frame.maxY - 200))
+        // 记忆上次位置（简化：默认右上角）。
+        // 无活动显示器时（合盖 / 无头 / 全部睡眠）`NSScreen.main` 为 nil，
+        // 强解包会直接 trap；退一步用任一已连接屏幕，再没有就保持 center() 的结果。
+        if let frame = (NSScreen.main ?? NSScreen.screens.first)?.frame {
+            p.setFrameTopLeftPoint(NSPoint(x: frame.maxX - 200, y: frame.maxY - 200))
+        }
         p.orderFrontRegardless()
         panel = p
     }
