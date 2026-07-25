@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibe Companion · 蹬车小人动画设计预览</title>
+<style>
+  :root{
+    --ink:#2D2D2D; --skin:#F2C09A; --orange:#F2994A; --wheel:#3A3A3A;
+    --bg:#f5f6f8; --card:#ffffff; --muted:#8a8f98; --line:#e6e8ec;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"SF Pro","PingFang SC","Helvetica Neue",sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:36px 0 6px;padding-top:18px;border-top:1px solid var(--line)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:18px;margin-top:14px}
+  .row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .demo{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .frame{border-radius:12px;background:
+        linear-gradient(#eef1f5,#e7ebf0);border:1px dashed #c7cdd6;position:relative}
+  .frame .tag{position:absolute;top:6px;left:8px;font-size:10px;color:var(--muted)}
+  .cap{font-size:12px;color:var(--muted);text-align:center;max-width:180px}
+  .badge{display:inline-block;background:var(--orange);color:#fff;font-size:11px;
+         font-weight:600;border-radius:999px;padding:1px 9px}
+  .btn{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;
+       padding:5px 14px;font-size:13px;color:var(--ink)}
+  .btn.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .seg{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+  table{font-size:12.5px;border-collapse:collapse;width:100%;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left}
+  th{background:#fafbfc}
+  input[type=range]{width:280px}
+  .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted)}
+  svg{display:block}
+  .note{font-size:12.5px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🚴 Vibe Companion · 悬浮动画设计预览</h1>
+  <p class="sub">Q 版极简 · 侧面骑车 · 粗线条 · 4 色以内。对应设计方案 1/2/3 段的可视化原型（CSS 近似，最终为 Lottie JSON）。</p>
+
+  <!-- ============ 1. 形象设计 ============ -->
+  <h2>1 · 形象设计稿</h2>
+  <p class="sub">侧视图朝右骑行。大圆头、短粗身、粗圆角四肢、简约自行车。右图为 140×140 实际悬浮窗显示尺寸。</p>
+  <div class="card"><div class="row">
+    <div class="demo">
+      <div class="frame" style="width:220px;height:220px"><span class="tag">设计稿 220×220</span>
+        <svg width="220" height="220" viewBox="0 0 200 200" id="staticArt"></svg>
+      </div>
+      <div class="cap">静态造型 · 部件拆分见下表</div>
+    </div>
+    <div class="demo">
+      <div class="frame" style="width:140px;height:140px"><span class="tag">140×140</span>
+        <svg width="140" height="140" viewBox="0 0 200 200" id="staticArtSmall"></svg>
+      </div>
+      <div class="cap">实际悬浮窗尺寸<br>（含 4 色配色）</div>
+    </div>
+    <div style="flex:1;min-width:240px">
+      <table>
+        <tr><th>部件</th><th>造型</th><th>颜色</th></tr>
+        <tr><td>头</td><td>大圆 r≈18</td><td>肉色 #F2C09A + 深描边</td></tr>
+        <tr><td>身体</td><td>短粗圆角矩形，前倾 ~15°</td><td>橙 #F2994A</td></tr>
+        <tr><td>四肢</td><td>粗圆角线段（大腿/小腿/手臂）</td><td>深灰 #2D2D2D</td></tr>
+        <tr><td>车轮 ×2</td><td>描边圆 + 轮毂 + 2 辐条</td><td>深灰 #3A3A3A</td></tr>
+        <tr><td>车架/车把/座</td><td>2–3 根简约线段</td><td>深灰 #3A3A3A</td></tr>
+        <tr><td>踏板曲柄</td><td>绕中轴旋转的短杆 + 踏板</td><td>深灰 #2D2D2D</td></tr>
+      </table>
+      <div class="note">配色与现有橙色速率气泡 <span class="badge">12.3k/min</span> 呼应。</div>
+    </div>
+  </div></div>
+
+  <!-- ============ 2. 骑行循环 ============ -->
+  <h2>2 · 骑行循环动画（pedal 段）</h2>
+  <p class="sub">60 帧 @30fps 无缝循环：车轮 360°/循环、踏板曲柄圆周运动、大腿+小腿两段旋转蹬踏、车身轻微颠簸 ±2px。</p>
+  <div class="card">
+    <div class="row">
+      <div class="demo">
+        <div class="frame" style="width:220px;height:220px"><span class="tag">pedal 循环</span>
+          <svg width="220" height="220" viewBox="0 0 200 200" id="pedalArt"></svg>
+        </div>
+        <div class="cap">蹬踏循环（CSS 模拟）</div>
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div class="seg">
+          <button class="btn" id="playBtn">⏸ 暂停</button>
+          <span class="mono" id="legInfo">右髋 22° / 右膝 113°</span>
+        </div>
+        <table>
+          <tr><th>图层</th><th>动画</th></tr>
+          <tr><td>wheel-front / back</td><td>rotation 0→360° / 循环（匀速）</td></tr>
+          <tr><td>crank + pedal</td><td>绕中轴 0→360° / 循环</td></tr>
+          <tr><td>thigh（大腿）</td><td>以髋为 anchor 旋转，12 个关键帧</td></tr>
+          <tr><td>shin（小腿）</td><td>以膝为 anchor 旋转，跟随大腿</td></tr>
+          <tr><td>body + arm</td><td>translateY ±2px 颠簸，2 次/循环</td></tr>
+        </table>
+        <div class="note">腿部关键帧由生成器用余弦定理反解膝角预先计算（两点 IK 近似），运行时零计算、lottie 原生旋转插值。左右腿相位差 180°。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3. 状态机 ============ -->
+  <h2>3 · 状态机（单文件 markers）+ 速度映射</h2>
+  <p class="sub">单 Lottie 文件含 <span class="mono">idle / pedal / boost</span> 三段 markers，Overlay 按 token 速率切换播放段并调 animationSpeed。</p>
+  <div class="card">
+    <div class="seg" id="stateSeg">
+      <button class="btn on" data-state="idle">😴 idle</button>
+      <button class="btn" data-state="pedal">🚴 pedal</button>
+      <button class="btn" data-state="boost">🔥 boost</button>
+    </div>
+    <div class="row">
+      <div class="demo">
+        <div class="frame" style="width:220px;height:220px"><span class="tag" id="stateTag">idle · 0–59f</span>
+          <svg width="220" height="220" viewBox="0 0 200 200" id="stateArt"></svg>
+        </div>
+        <div class="cap" id="stateCap">坐车上打盹 · 呼吸起伏 · 车轮静止</div>
+      </div>
+      <div style="flex:1;min-width:280px">
+        <div style="margin-bottom:8px">
+          <label class="mono">token 速率映射（仅 pedal/boost 生效）</label><br>
+          <input type="range" id="speed" min="0" max="32000" value="8000" step="500">
+          <div class="mono" id="speedInfo">8000 tok/min → 1.00×</div>
+        </div>
+        <table>
+          <tr><th>marker</th><th>帧段</th><th>内容</th><th>播放</th></tr>
+          <tr><td>idle</td><td>0–59</td><td>打盹/呼吸，车轮静止</td><td>循环</td></tr>
+          <tr><td>pedal</td><td>60–119</td><td>蹬踏循环</td><td>循环 + 变速</td></tr>
+          <tr><td>boost</td><td>120–149</td><td>前倾加大 + 速度线</td><td>高速档叠加</td></tr>
+        </table>
+        <div class="note">速度映射沿用 <span class="mono">AppConfig.animationSpeed</span>：8000 tok/min → 1.0×，clamp [0.25, 4.0]。</div>
+      </div>
+    </div>
+
+    <h2 style="border:none;margin-top:24px;padding-top:0">状态切换过渡：需要你决策</h2>
+    <div class="row">
+      <div class="demo">
+        <div class="frame" style="width:170px;height:170px"><span class="tag">方案甲 · marker 瞬切</span>
+          <svg width="170" height="170" viewBox="0 0 200 200" id="jumpArt"></svg>
+        </div>
+        <div class="cap">idle→pedal 直接切换播放段<br>实现简单，切换瞬间有"跳帧"感</div>
+      </div>
+      <div class="demo">
+        <div class="frame" style="width:170px;height:170px"><span class="tag">方案乙 · 平滑过渡段</span>
+          <svg width="170" height="170" viewBox="0 0 200 200" id="smoothArt"></svg>
+        </div>
+        <div class="cap">idle→pedal 间加 ~10 帧起步过渡<br>更自然，需多做过渡帧段</div>
+      </div>
+      <div style="flex:1;min-width:220px">
+        <p style="font-size:13px;margin-top:0">
+          两者都用同一 Lottie 文件 markers。<b>方案甲（MVP 推荐）</b>：状态变化时 lottie 切换播放段，瞬切。
+          <b>方案乙</b>：额外制作 idle→pedal / pedal→idle 的过渡帧段，切换时先播过渡段再进循环。</p>
+        <p style="font-size:13px;color:var(--muted)">下方两个演示自动循环播放"idle 2s → 切换 → pedal 2s"，观察切换瞬间的差异。</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:24px">📌 本页为评审用 CSS 近似原型，最终交付为程序化生成的 Lottie JSON（<span class="mono">cycling_pet.json</span>）。请在对话中确认：① 形象风格 ② 骑行循环 ③ 状态过渡选甲或乙。</p>
+</div>
+
+<script>
+/* ---------- 公共几何与 SVG 构建 ---------- */
+const NS='http://www.w3.org/2000/svg';
+const C={ink:'#2D2D2D',skin:'#F2C09A',orange:'#F2994A',wheel:'#3A3A3A'};
+const HIP={x:100,y:84}, CRANK={x:100,y:128}, R=18, THIGH=34, SHIN=34;
+const WB={x:66,y:140}, WF={x:140,y:140}, SEAT={x:86,y:88}, GRIP={x:142,y:80}, BB={x:100,y:128};
+
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);
+  for(const k in attrs)e.setAttribute(k,attrs[k]); if(parent)parent.appendChild(e); return e;}
+
+/* 两点 IK：给定踏板角 θ，求大腿/小腿旋转角（与 SVG y 向下坐标一致） */
+function solveLeg(deg){
+  const th=deg*Math.PI/180;
+  const px=CRANK.x+R*Math.cos(th), py=CRANK.y+R*Math.sin(th);
+  const dx=px-HIP.x, dy=py-HIP.y, d=Math.hypot(dx,dy);
+  const a=Math.atan2(dy,dx);
+  const c=Math.max(-1,Math.min(1,(THIGH*THIGH+d*d-SHIN*SHIN)/(2*THIGH*d)));
+  const tHip=a-Math.acos(c);
+  const kx=HIP.x+THIGH*Math.cos(tHip), ky=HIP.y+THIGH*Math.sin(tHip);
+  const tKnee=Math.atan2(py-ky,px-kx);
+  return {px,py,kx,ky,hip:tHip*180/Math.PI,knee:tKnee*180/Math.PI};
+}
+/* 由 12 采样点生成 CSS keyframes（髋/膝旋转角） */
+function legKeyframes(phase){
+  const N=12; let hip=[],knee=[];
+  for(let i=0;i<=N;i++){const deg=phase+ i*(360/N); const s=solveLeg(deg);
+    const p=Math.round(i/N*100); hip.push(`${p}%{transform:rotate(${s.hip.toFixed(1)}deg)}`);
+    knee.push(`${p}%{transform:rotate(${s.knee.toFixed(1)}deg)}`);}
+  return {hip:hip.join(''),knee:knee.join('')};
+}
+
+/* 构建一个小人骑车 SVG。opts:{boost:boolean} 返回各可动部件引用 */
+function buildRider(svg,opts={}){
+  const boost=opts.boost||false;
+  const g=el('g',{},svg);
+  // 速度线（boost）
+  const speed=el('g',{stroke:C.ink,'stroke-width':3,'stroke-linecap':round_(),opacity:boost?0.85:0},g);
+  [[18,60,46],[12,84,44],[20,108,40]].forEach(l=>el('line',{x1:l[0],y1:l[1],x2:l[0]+l[2],y2:l[1]},speed));
+  // 车轮
+  const mkWheel=(c)=>{const w=el('g',{transform:`translate(${c.x} ${c.y})`},g);
+    el('circle',{r:20,fill:'none',stroke:C.wheel,'stroke-width':4},w);
+    const sp=el('g',{stroke:C.wheel,'stroke-width':2.5},w);
+    el('line',{x1:-14,y1:0,x2:14,y2:0},sp); el('line',{x1:0,y1:-14,x2:0,y2:14},sp);
+    el('circle',{r:3,fill:C.wheel},w); return {w,sp};};
+  const wb=mkWheel(WB), wf=mkWheel(WF);
+  // 车架
+  const frame=el('g',{stroke:C.wheel,'stroke-width':4,'stroke-linecap':'round',fill:'none'},g);
+  el('line',{x1:WB.x,y1:WB.y,x2:BB.x,y2:BB.y},frame);
+  el('line',{x1:BB.x,y1:BB.y,x2:WF.x,y2:WF.y},frame);
+  el('line',{x1:WB.x,y1:WB.y,x2:SEAT.x,y2:SEAT.y},frame);
+  el('line',{x1:SEAT.x,y1:SEAT.y,x2:BB.x,y2:BB.y},frame);
+  el('line',{x1:WF.x,y1:WF.y,x2:150,y2:86},frame);          // 前叉/把立
+  el('line',{x1:150,y1:86,x2:GRIP.x,y2:GRIP.y},frame);     // 车把
+  el('line',{x1:78,y1:88,x2:94,y2:88,'stroke-width':6},frame); // 座
+  // 车身组（颠簸）
+  const body=el('g',{},g);
+  // 手臂（肩->握把）
+  const arm=el('g',{transform:'translate(104 96)'},body);
+  el('line',{x1:0,y1:0,x2:GRIP.x-104,y2:GRIP.y-96,stroke:C.ink,'stroke-width':6,'stroke-linecap':'round'},arm);
+  // 躯干
+  const lean=boost?24:15;
+  const torso=el('g',{transform:`translate(100 96) rotate(${-lean})`},body);
+  el('rect',{x:-9,y:-34,width:18,height:36,rx:9,fill:C.orange,stroke:C.ink,'stroke-width':2.5},torso);
+  // 头
+  const head=el('g',{transform:'translate(0 -40)'},torso);
+  el('circle',{r:18,fill:C.skin,stroke:C.ink,'stroke-width':2.5},head);
+  const zzz=el('text',{x:14,y:-14,'font-size':14,fill:C.ink,opacity:0},head); zzz.textContent='💤';
+  // 腿（左右，各 thigh+shin 嵌套）
+  function mkLeg(phase,front){
+    const th=el('g',{transform:`translate(${HIP.x} ${HIP.y})`},body);
+    el('line',{x1:0,y1:0,x2:THIGH,y2:0,stroke:front?C.ink:'#555','stroke-width':7,'stroke-linecap':'round'},th);
+    const sh=el('g',{transform:`translate(${THIGH} 0)`},th);
+    el('line',{x1:0,y1:0,x2:SHIN,y2:0,stroke:front?C.ink:'#555','stroke-width':6,'stroke-linecap':'round'},sh);
+    return {th,sh,phase};
+  }
+  const legL=mkLeg(180,false), legR=mkLeg(0,true);
+  // 曲柄 + 踏板
+  const crank=el('g',{transform:`translate(${CRANK.x} ${CRANK.y})`},g);
+  const crankRot=el('g',{},crank);
+  el('line',{x1:0,y1:0,x2:R,y2:0,stroke:C.ink,'stroke-width':5,'stroke-linecap':'round'},crankRot);
+  el('rect',{x:R-3,y:-3,width:14,height:6,rx:3,fill:C.ink},crankRot);
+  return {g,body,arm,torso,head,zzz,wb,wf,crankRot,legL,legR,speed,boost};
+}
+function round_(){return 'round';}
+
+/* ---------- 各场景实例 ---------- */
+// 1. 静态稿
+buildRider(document.getElementById('staticArt'));
+buildRider(document.getElementById('staticArtSmall'));
+
+// 动态注入腿部 keyframes（左右腿相位差 180）
+const kfR=legKeyframes(0), kfL=legKeyframes(180);
+const style=document.createElement('style');
+style.textContent=`
+ @keyframes kfHipR{${kfR.hip}} @keyframes kfKneeR{${kfR.knee}}
+ @keyframes kfHipL{${kfL.hip}} @keyframes kfKneeL{${kfL.knee}}
+ @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+ @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.5px)}}
+ @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+ @keyframes doze{0%,100%{transform:rotate(8deg)}50%{transform:rotate(13deg)}}
+ @keyframes zzzF{0%{opacity:0;transform:translateY(4px)}50%{opacity:1}100%{opacity:0;transform:translateY(-6px)}}
+ @keyframes leanIn{from{transform:rotate(0)}to{transform:rotate(-9deg)}}
+ .paused *{animation-play-state:paused !important}
+`;
+document.head.appendChild(style);
+
+/* 给一个 rider 绑定 pedal 骑行 CSS 动画 */
+function animatePedal(r,dur){
+  const t=`${dur}s linear infinite`;
+  r.wb.sp.style.animation=`spin ${t}`; r.wf.sp.style.animation=`spin ${t}`;
+  r.crankRot.style.animation=`spin ${t}`;
+  r.legR.th.style.animation=`kfHipR ${t}`; r.legR.sh.style.animation=`kfKneeR ${t}`;
+  r.legL.th.style.animation=`kfHipL ${t}`; r.legL.sh.style.animation=`kfKneeL ${t}`;
+  r.body.style.animation=`bob ${dur/2}s ease-in-out infinite`;
+}
+function clearAnim(r){[r.wb.sp,r.wf.sp,r.crankRot,r.legR.th,r.legR.sh,r.legL.th,r.legL.sh,r.body]
+  .forEach(e=>e.style.animation='');}
+
+// 2. pedal 循环演示
+const pedalR=buildRider(document.getElementById('pedalArt'));
+animatePedal(pedalR,1.4);
+document.getElementById('playBtn').onclick=function(){
+  const f=document.getElementById('pedalArt').parentElement;
+  f.classList.toggle('paused');
+  this.textContent=f.classList.contains('paused')?'▶ 播放':'⏸ 暂停';
+};
+
+// 3. 状态机演示
+const stateR=buildRider(document.getElementById('stateArt'));
+let curState='idle';
+function setState(st){
+  curState=st; clearAnim(stateR);
+  document.querySelectorAll('#stateSeg .btn').forEach(b=>b.classList.toggle('on',b.dataset.state===st));
+  const tag=document.getElementById('stateTag'),cap=document.getElementById('stateCap');
+  stateR.zzz.style.animation=''; stateR.zzz.setAttribute('opacity',0);
+  stateR.speed.setAttribute('opacity',0);
+  stateR.torso.style.animation='';
+  if(st==='idle'){tag.textContent='idle · 0–59f';cap.textContent='坐车上打盹 · 呼吸起伏 · 车轮静止';
+    stateR.body.style.animation='breathe 2.4s ease-in-out infinite';
+    stateR.head.style.animation='doze 2.4s ease-in-out infinite';
+    stateR.zzz.style.animation='zzzF 2.4s ease-in-out infinite';
+  }else if(st==='pedal'){tag.textContent='pedal · 60–119f';cap.textContent='蹬踏循环 · 速度随 token 变化';
+    applySpeed();
+  }else{tag.textContent='boost · 120–149f';cap.textContent='高速档 · 前倾加大 + 速度线';
+    stateR.speed.setAttribute('opacity',0.85); applySpeed(true);}
+}
+document.querySelectorAll('#stateSeg .btn').forEach(b=>b.onclick=()=>setState(b.dataset.state));
+
+// 速度映射
+function applySpeed(boostMode){
+  const v=+document.getElementById('speed').value;
+  let sp=Math.min(Math.max(v/8000,0.25),4);
+  const boost=boostMode!==undefined?boostMode:(curState==='boost');
+  if(boost)sp=Math.max(sp,2.5);
+  document.getElementById('speedInfo').textContent=`${v} tok/min → ${sp.toFixed(2)}×${boost?'（boost 前倾+速度线）':''}`;
+  const dur=1.4/sp;
+  clearAnim(stateR);
+  animatePedal(stateR,dur);
+  if(boost){stateR.torso.style.animation=''; stateR.speed.setAttribute('opacity',0.85);}
+}
+document.getElementById('speed').oninput=()=>applySpeed();
+setState('idle');
+
+/* 4. 过渡对比：甲=瞬切，乙=平滑过渡。各自自动循环 idle2s→pedal2s */
+const jumpR=buildRider(document.getElementById('jumpArt'));
+const smoothR=buildRider(document.getElementById('smoothArt'));
+function runCompare(){
+  // 甲：瞬切
+  (function cycle(){
+    clearAnim(jumpR); jumpR.body.style.animation='breathe 2.4s ease-in-out infinite';
+    jumpR.zzz.style.animation='zzzF 2.4s ease-in-out infinite';
+    setTimeout(()=>{clearAnim(jumpR);jumpR.zzz.setAttribute('opacity',0);jumpR.zzz.style.animation='';
+      animatePedal(jumpR,1.4);
+      setTimeout(cycle,2000);},2000);
+  })();
+  // 乙：平滑过渡（起步时躯干渐入 + 转速缓升）
+  (function cycle(){
+    clearAnim(smoothR); smoothR.body.style.animation='breathe 2.4s ease-in-out infinite';
+    smoothR.zzz.style.animation='zzzF 2.4s ease-in-out infinite';
+    setTimeout(()=>{clearAnim(smoothR);smoothR.zzz.setAttribute('opacity',0);smoothR.zzz.style.animation='';
+      // 过渡：先慢速再进入常速（模拟起步过渡段）
+      animatePedal(smoothR,2.2);
+      smoothR.torso.style.transition='transform .3s'; smoothR.torso.style.transform+=' rotate(-4deg)';
+      setTimeout(()=>{animatePedal(smoothR,1.4);
+        setTimeout(()=>{smoothR.torso.style.transform=smoothR.torso.style.transform.replace(' rotate(-4deg)','');cycle();},1200);},500);},2000);
+  })();
+}
+runCompare();
+
+// 腿部信息实时显示（pedal 演示）
+setInterval(()=>{
+  const now=(performance.now()/1400)%1*360;
+  const s=solveLeg(now);
+  document.getElementById('legInfo').textContent=`右髋 ${s.hip.toFixed(0)}° / 右膝 ${s.knee.toFixed(0)}°`;
+},100);
+</script>
+</body>
+</html>
