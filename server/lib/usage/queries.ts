@@ -87,6 +87,24 @@ export async function globalLeaderboard(fromMs: number, toMs: number, limit = 10
   }));
 }
 
+// 有效消耗 token：用于速率展示，排除 prompt cache 读取复用（cache_read）。
+// cache_read 在 Claude Code 中常占 total 的 90%+ 且计费仅 1/10，计入速率会
+// 产生天文数字且与"真实消耗速度"脱节。effective = input + output + cache_creation。
+export async function effectiveTokensSinceForUser(userId: string, sinceMs: number): Promise<number> {
+  const rows = await db
+    .select({
+      total: sql<number>`SUM(${schema.usageEvents.inputTokens} + ${schema.usageEvents.outputTokens} + ${schema.usageEvents.cacheCreationTokens})`.as("total"),
+    })
+    .from(schema.usageEvents)
+    .where(
+      and(
+        eq(schema.usageEvents.userId, userId),
+        gte(schema.usageEvents.recordedAt, sinceMs)
+      )
+    );
+  return Number(rows[0]?.total ?? 0);
+}
+
 // 时间窗 helper
 export function periodRange(period: "today" | "week" | "month"): { fromMs: number; toMs: number } {
   const now = new Date();

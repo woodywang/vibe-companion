@@ -27,9 +27,10 @@ final class TokenAggregator: ObservableObject {
     /// 注入一条采集到的事件
     func ingest(_ event: UsageEvent) {
         let now = Date()
-        window.append(Sample(timestamp: now, tokens: event.totalTokens))
+        // 速率窗口用 effective（排除 cache_read），避免 prompt cache 命中导致天文数字
+        window.append(Sample(timestamp: now, tokens: event.effectiveTokens))
 
-        // 今日累计（按本地日期判断）
+        // 今日累计（按本地日期判断）-- 累计口径保留 total（含 cache_read），与后端一致
         if Calendar.current.isDateInToday(Date(timeIntervalSince1970: TimeInterval(event.recordedAt) / 1000)) {
             todayTotal += event.totalTokens
         }

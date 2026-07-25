@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import { dailyTotalsForUser, periodRange, globalLeaderboard } from "@/lib/usage/queries";
+import { dailyTotalsForUser, periodRange, globalLeaderboard, effectiveTokensSinceForUser } from "@/lib/usage/queries";
 import { db, schema } from "@/lib/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { ClientManager } from "@/components/ClientManager";
 import { fmtTokens, fmtCost, fmtRate, fmtRelative, fmtDate } from "@/lib/ui/format";
 
@@ -16,16 +16,12 @@ export default async function DashboardPage() {
   const { fromMs, toMs } = periodRange("week");
   const daily = await dailyTotalsForUser(user.id, fromMs, toMs);
 
-  // 今日总量 + 最近 60s 速率
+  // 今日总量 + 最近 60s 速率（effective 口径，排除 cache_read）
   const now = Date.now();
   const since60s = now - 60_000;
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayRow = daily.find((d) => d.date === todayKey);
-  const recent = await db
-    .select({ total: sql<number>`SUM(${schema.usageEvents.totalTokens})` })
-    .from(schema.usageEvents)
-    .where(sql`${schema.usageEvents.userId} = ${user.id} AND ${schema.usageEvents.recordedAt} >= ${since60s}`);
-  const tokensPerMin = Number(recent[0]?.total ?? 0);
+  const tokensPerMin = await effectiveTokensSinceForUser(user.id, since60s);
 
   // 设备列表
   const clients = await db
