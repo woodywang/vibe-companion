@@ -19,6 +19,10 @@ struct UsageEvent: Codable, Equatable, Identifiable {
 
     // 字段名与后端 zod schema 一致（camelCase），无需自定义 CodingKeys。
     // JSONEncoder 默认输出 camelCase，与服务端期望完全匹配。
+
+    /// 加权 token 数：排除低成本的 cacheRead，用于驱动宠物速率与今日累计。
+    /// 计算属性不参与 Codable 编码，不影响上传 body。
+    var weightedTokens: Int { inputTokens + outputTokens + cacheCreationTokens + reasoningTokens }
 }
 
 // MARK: - 上传 API 请求/响应
