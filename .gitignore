@@ -33,3 +33,6 @@ npm-debug.log*
 
 # Worktrees
 .worktrees/
+
+# TS incremental build cache
+*.tsbuildinfo
