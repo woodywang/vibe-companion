@@ -12,13 +12,12 @@ if [[ "$MODE" == "release" ]]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CLIENT="$ROOT/client"
-BUILD_DIR="$CLIENT/.build"
+BUILD_DIR="$ROOT/.build"
 APP_NAME="VibeCompanion"
 APP_BUNDLE="$BUILD_DIR/app/$APP_NAME.app"
 
 echo "==> Building ($MODE)..."
-cd "$CLIENT"
+cd "$ROOT"
 swift build $CONFIG_FLAG
 
 # 定位可执行文件
@@ -39,7 +38,7 @@ cp "$EXE_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 # 只能回退到编译期烘进二进制的 `.build` 绝对路径——App 一旦离开本机、或 `.build`
 # 被清掉，启动即 fatalError：
 #   could not load resource bundle: from <app>/VibeCompanion_VibeCompanion.bundle
-#   or <repo>/client/.build/arm64-apple-macosx/debug/VibeCompanion_VibeCompanion.bundle
+#   or <repo>/.build/arm64-apple-macosx/debug/VibeCompanion_VibeCompanion.bundle
 # 两个候选位置都放：Contents/Resources 是 `Bundle.main.resourceURL`，
 # .app 根目录是 `Bundle.main.bundleURL`（错误信息里实际报出的那个）。
 BUNDLE_NAME="${APP_NAME}_${APP_NAME}.bundle"

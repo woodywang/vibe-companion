@@ -1,15 +1,12 @@
-# Dependencies
-node_modules/
+# Build output
 .build/
 dist/
 out/
-.next/
 *.xcodeproj
 *.xcworkspace
 DerivedData/
 
 # SwiftPM
-.build/
 .swiftpm/
 Package.resolved
 
@@ -17,8 +14,7 @@ Package.resolved
 xcuserdata/
 *.xcuserstate
 
-# Data / secrets
-server/.data/
+# Secrets
 .env
 .env.local
 .env*.local
@@ -29,15 +25,11 @@ Thumbs.db
 
 # Logs
 *.log
-npm-debug.log*
 
 # Worktrees（Claude Code 内部机制，不入库）
 .worktrees/
 .claude/worktrees/
 .claude/settings.local.json
-
-# TS incremental build cache
-*.tsbuildinfo
 
 # 工具/MCP 产物（截图、预览缓存，不入库）
 .playwright-mcp/
