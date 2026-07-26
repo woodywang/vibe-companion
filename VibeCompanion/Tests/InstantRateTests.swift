@@ -112,10 +112,39 @@ final class InstantRateTests: XCTestCase {
         ema.ingest(tokens: 30_000, at: at(100))
         ema.ingest(tokens: 30_000, at: at(50))     // 迟到的旧记录：计入，但不倒表
         let afterLate = ema.value
-        XCTAssertEqual(afterLate, 120_000, accuracy: 1e-9)
+        XCTAssertEqual(afterLate, 60_000 + 60_000 * exp(-50.0 / 30.0), accuracy: 1e-6)
 
         ema.advance(to: at(130))                   // 距 t=100 三十秒
         XCTAssertEqual(ema.value, afterLate / M_E, accuracy: afterLate * 1e-9)
+    }
+
+    /// 迟到的记录按它**本应经历的衰减**折算后并入，而不是全额计入。
+    ///
+    /// 一条 t 时刻的记录，在时钟已经走到 last 时，对当前读数的正确贡献是
+    /// `v/τ*60 · exp(-(last-t)/τ)`——全额计入等于假装它是刚刚发生的。
+    ///
+    /// 这不是理论洁癖：启动回扫按文件依次整篇重放，第二个文件的时间戳全部
+    /// 早于第一个文件的末条，于是每一条都撞上 dt <= 0。全额计入会把整份历史
+    /// 无衰减地堆进 EMA——模拟两个 6 小时文件即可把 63k tok/min 的真实速率
+    /// 顶到 20M 以上，指针钉在红线且 recentPeak 被污染十几分钟。
+    func testLateRecordIsDiscountedByTheDecayItMissed() {
+        var ema = InstantRateEMA(tau: 30)
+        ema.ingest(tokens: 30_000, at: at(600))
+        let base = ema.value
+        ema.ingest(tokens: 30_000, at: at(0))      // 早 600 秒 = 20 个 τ，exp(-20) ≈ 2e-9
+        XCTAssertEqual(ema.value, base, accuracy: 1e-3, "20 个时间常数之前的记录不该抬动读数")
+    }
+
+    /// 整篇乱序重放（回扫第二个文件）不得把读数顶上天。
+    func testReplayingAnOlderRunDoesNotSpikeTheReading() {
+        var ema = InstantRateEMA(tau: 30)
+        // 文件 1：0..600 秒，每 30 秒一条，稳态约 60k tok/min
+        for i in 0...20 { ema.ingest(tokens: 30_000, at: at(Double(i) * 30)) }
+        let steady = ema.value
+        // 文件 2：同一段时间的另一份历史，时间戳全部早于当前时钟
+        for i in 0...20 { ema.ingest(tokens: 30_000, at: at(Double(i) * 30)) }
+        XCTAssertLessThan(ema.value, steady * 2.1,
+                          "重放一份等量的旧历史最多让读数翻倍，不该是数量级的跳变")
     }
 
     func testZeroTokenRecordOnlyAdvancesTheClock() {

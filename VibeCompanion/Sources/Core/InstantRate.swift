@@ -64,7 +64,18 @@ struct InstantRateEMA {
     ///
     /// 先把时钟推进到 `t` 再注入，于是「衰减发生在哪一刻」是确定的，
     /// 与调用方多久 tick 一次无关——不存在时序偏差。
+    ///
+    /// **迟到的记录按它错过的那段衰减折算**。一条 `t` 时刻的记录，在时钟已经
+    /// 走到 `last` 时对当前读数的正确贡献是 `v/τ*60 · exp(-(last-t)/τ)`；
+    /// 全额计入等于假装它刚刚发生。这是启动回扫的关键路径：Collector 按文件
+    /// 依次整篇重放，第二个文件的时间戳全部早于第一个文件的末条，每一条都
+    /// 走这条分支——全额计入会把整份历史无衰减地堆进 EMA，指针直接顶死。
     mutating func ingest(tokens: Double, at t: Date) {
+        if let last = lastUpdate, t < last {
+            guard tokens > 0 else { return }
+            value += tokens / tau * 60 * exp(t.timeIntervalSince(last) / tau)
+            return
+        }
         advance(to: t)
         guard tokens > 0 else { return }
         value += tokens / tau * 60
