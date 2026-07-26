@@ -50,7 +50,9 @@ struct FloatingPetContent: View {
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.9))
+                    .background(gaugeColor(tokensPerMinute: rpm,
+                                           hasBurnRate: snap.hasBurnRate,
+                                           scale: scale).opacity(0.9))
                     .foregroundColor(.white)
                     .clipShape(Capsule())
             }

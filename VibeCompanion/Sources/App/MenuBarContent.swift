@@ -26,6 +26,8 @@ struct MenuBarContent: View {
 
     var body: some View {
         let snap = coordinator.snapshot
+        // 菜单栏没有表盘几何，但配色必须与指针位置一致：同样用当前量程 + gaugeZone。
+        let scale = gaugeScale(id: coordinator.gaugeScaleID, recentPeak: snap.recentPeak)
 
         return VStack(alignment: .leading, spacing: 8) {
             // 实时状态
@@ -36,7 +38,9 @@ struct MenuBarContent: View {
                         Text(speedometerDisplay(rpm: snap.tokensPerMinute,
                                                 hasBurnRate: snap.hasBurnRate))
                             .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.orange)
+                            .foregroundColor(gaugeColor(tokensPerMinute: snap.tokensPerMinute,
+                                                        hasBurnRate: snap.hasBurnRate,
+                                                        scale: scale))
                     }
                     Spacer()
                     Text(petEmoji(snap))

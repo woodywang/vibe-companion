@@ -22,16 +22,9 @@ struct SpeedometerView: View {
         GaugeGeometry.angleMin + GaugeColorConfig.redFraction * GaugeGeometry.sweep
     }
 
-    private var zone: GaugeZone {
-        hasBurnRate ? gaugeZone(value: tokensPerMinute, scale: scale) : .green
-    }
-
+    /// 配色走共享映射，菜单栏与速率气泡用的是同一个函数。
     private var zoneColor: Color {
-        switch zone {
-        case .green: return Color(hex: 0x3D_D6_8C)
-        case .yellow: return Color(hex: 0xE8_B3_39)
-        case .red: return Color(hex: 0xE5_48_4D)
-        }
+        gaugeColor(tokensPerMinute: tokensPerMinute, hasBurnRate: hasBurnRate, scale: scale)
     }
 
     var body: some View {
