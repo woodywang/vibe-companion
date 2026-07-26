@@ -33,9 +33,10 @@ final class AppCoordinator: ObservableObject {
     let pricingStore = PricingStore(builtinSnapshot: loadBuiltinPricingSnapshot(),
                                     cache: FilePricingCache(),
                                     fetcher: URLSessionPricingFetcher())
-    lazy var aggregator = TokenAggregator(pricing: pricingStore,
-                                          retentionHours: AppConfig.windowRetentionHours,
-                                          idleTimeoutSeconds: AppConfig.idleTimeoutSeconds)
+    lazy var aggregator = TokenAggregator(
+        pricing: pricingStore,
+        retentionHours: AppConfig.windowRetentionHours,
+        instantRateTauSeconds: Settings.shared.instantRateTauSeconds)
     /// 展示层读数口径：摄入永不中断，暂停只冻结这里的快照。
     lazy var display = UsageDisplay(aggregator: aggregator, paused: isPaused)
     private(set) var collector: Collector?
@@ -54,10 +55,23 @@ final class AppCoordinator: ObservableObject {
     var snapshot: UsageSnapshot { display.snapshot }
 
     /// 速度表量程，改动后悬浮窗立即重建以套用新刻度。
+    /// （量程标识是在 `FloatingPetContent` 初始化时捕获的，不重建不生效。）
     @Published var gaugeScaleID: String = Settings.shared.gaugeScaleID {
         didSet {
             Settings.shared.gaugeScaleID = gaugeScaleID
             rebuildFloatingPanel()
+        }
+    }
+
+    /// 瞬时速率的时间常数（秒）。
+    ///
+    /// 不必重建悬浮窗：τ 只存在于聚合器内部，改完立即 `recompute()`
+    /// 重新发布读数，表盘作为 `@ObservedObject` 观察者自动跟着刷新。
+    /// 重建反而会让窗口闪一下、还会丢掉用户拖过的位置。
+    @Published var instantRateTauSeconds: TimeInterval = Settings.shared.instantRateTauSeconds {
+        didSet {
+            Settings.shared.instantRateTauSeconds = instantRateTauSeconds
+            aggregator.setInstantRateTau(instantRateTauSeconds)
         }
     }
 

@@ -19,8 +19,24 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
-                Text("实测真实速率跨度可达 20 倍（约 41k – 760k tok/min）。"
-                     + "线性最直观；对数在低速区更有分辨率；自适应跟随近期峰值，永不溢出但刻度会变。")
+                Text("实测瞬时速率跨三个数量级（中位约 613k、峰值超过 8M tok/min）。"
+                     + "对数在整个跨度上都有分辨率，是默认；线性最直观但低速区指针贴底；"
+                     + "自适应跟随近期峰值，永不溢出但刻度会变。")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+
+            Section("表盘灵敏度") {
+                Picker("平滑时间常数", selection: $coordinator.instantRateTauSeconds) {
+                    ForEach(allInstantRateTauSeconds, id: \.self) { tau in
+                        Text(instantRateTauLabel(tau)).tag(tau)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text("表盘显示的是**瞬时**速率，这个值决定它有多跟手。"
+                     + "数值越小指针越跳、反馈越快；越大越稳、响应越慢。"
+                     + "实测 30 秒档相邻更新中位跳变 6.4%、约 69 秒响应到位；"
+                     + "60 秒档跳变 3.3%、约 138 秒。"
+                     + "（菜单栏的速率不受此项影响，那里始终是 ccusage 的区块口径。）")
                     .font(.caption).foregroundColor(.secondary)
             }
         }

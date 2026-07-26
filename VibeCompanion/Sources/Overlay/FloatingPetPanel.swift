@@ -34,24 +34,34 @@ struct FloatingPetContent: View {
     let gaugeScaleID: String
 
     var body: some View {
+        // 表盘走**瞬时**速率：速度表本该显示当前速度，而不是 ccusage 的
+        // 5 小时区块全程平均（那个值极其平稳，发出大 prompt 后指针纹丝不动）。
+        // 菜单栏仍用 `snap.tokensPerMinute`，那才是与 ccusage 一致的口径。
         let snap = coordinator.snapshot
-        let rpm = snap.tokensPerMinute
+        let rpm = snap.instantTokensPerMinute
         let scale = gaugeScale(id: gaugeScaleID, recentPeak: snap.recentPeak)
+        // 瞬时速率永远有定义，但衰减到 0 意味着"熄火"：与冷启动尚无数据
+        // 一样显示 `--` 而非 `0`。这里**不能**用 `snap.hasBurnRate`——那是
+        // ccusage 的 `duration <= 0` 守卫，会把"会话第一条记录"这种最该
+        // 给出即时反馈的时刻压掉。
+        let hasReading = rpm > 0
 
         VStack(spacing: 2) {
             SpeedometerView(tokensPerMinute: rpm,
-                            hasBurnRate: snap.hasBurnRate,
+                            hasBurnRate: hasReading,
                             scale: scale)
                 .frame(width: 140, height: 140)
 
-            // 速率小气泡（非 idle 且有速率时显示）
-            if !snap.isIdle && snap.hasBurnRate {
+            // 速率小气泡（有读数时显示）
+            if hasReading {
                 Text(speedometerFormat(rpm))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .background(gaugeColor(tokensPerMinute: rpm,
-                                           hasBurnRate: snap.hasBurnRate,
+                                           hasBurnRate: hasReading,
                                            scale: scale).opacity(0.9))
                     .foregroundColor(.white)
                     .clipShape(Capsule())

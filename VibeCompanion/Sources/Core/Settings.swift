@@ -23,6 +23,7 @@ final class Settings {
     private enum Keys {
         static let paused = "vc.paused"
         static let gaugeScaleID = "vc.gaugeScaleID"
+        static let instantRateTau = "vc.instantRateTau"
     }
 
     var isPaused: Bool {
@@ -30,12 +31,28 @@ final class Settings {
         set { defaults.set(newValue, forKey: Keys.paused) }
     }
 
-    /// 速度表量程标识。未设置或值非法时回退到线性。
+    /// 速度表量程标识。未设置或值非法时回退到对数。
+    ///
+    /// 默认取对数而非线性：瞬时速率实测跨三个数量级（中位 613k、p99 6.02M），
+    /// 中位值在线性 0–8.4M 上只占 7.3% 行程（指针贴底看不出变化），
+    /// 在对数 10k–10M 上占 59.6%。
     var gaugeScaleID: String {
         get {
             let stored = defaults.string(forKey: Keys.gaugeScaleID) ?? ""
-            return allGaugeScaleIDs.contains(stored) ? stored : "linear"
+            return allGaugeScaleIDs.contains(stored) ? stored : "log"
         }
         set { defaults.set(newValue, forKey: Keys.gaugeScaleID) }
+    }
+
+    /// 瞬时速率 EMA 的时间常数（秒）。未设置或值非法时回退到默认档。
+    ///
+    /// `defaults.double` 在键不存在时返回 0，不在合法档位里，自然落到默认。
+    var instantRateTauSeconds: TimeInterval {
+        get {
+            let stored = defaults.double(forKey: Keys.instantRateTau)
+            return allInstantRateTauSeconds.contains(stored)
+                ? stored : defaultInstantRateTauSeconds
+        }
+        set { defaults.set(newValue, forKey: Keys.instantRateTau) }
     }
 }

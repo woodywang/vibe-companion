@@ -5,13 +5,15 @@ import Foundation
 /// 存在的理由是「冻结显示」：暂停时需要把某一刻的读数原样留住，
 /// 而 `TokenAggregator` 会继续变化。快照是纯值，不含任何 I/O。
 struct UsageSnapshot: Equatable {
+    /// ccusage 区块速率，菜单栏用。
     var tokensPerMinute: Double = 0
     var indicatorTokensPerMinute: Double = 0
     var level: BurnRateLevel = .normal
     var costPerHour: Double?
     var hasBurnRate: Bool = false
-    var isIdle: Bool = true
     var todayTotal: Int = 0
+    /// 瞬时速率，表盘用。冻结显示对它同样生效。
+    var instantTokensPerMinute: Double = 0
     var recentPeak: Double = 0
 }
 
@@ -24,8 +26,8 @@ extension UsageSnapshot {
                   level: a.level,
                   costPerHour: a.costPerHour,
                   hasBurnRate: a.hasBurnRate,
-                  isIdle: a.isIdle,
                   todayTotal: a.todayTotal,
+                  instantTokensPerMinute: a.instantTokensPerMinute,
                   recentPeak: a.recentPeak)
     }
 }

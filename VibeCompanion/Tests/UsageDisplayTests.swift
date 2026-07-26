@@ -20,7 +20,7 @@ final class UsageDisplayTests: XCTestCase {
 
     private func make(nowOffsetMin: Double,
                       paused: Bool = false) -> (TokenAggregator, UsageDisplay) {
-        let a = TokenAggregator(pricing: nil, retentionHours: 6, idleTimeoutSeconds: 90,
+        let a = TokenAggregator(pricing: nil, retentionHours: 6, instantRateTauSeconds: 30,
                                 now: { self.base.addingTimeInterval(nowOffsetMin * 60) })
         return (a, UsageDisplay(aggregator: a, paused: paused))
     }
@@ -73,6 +73,27 @@ final class UsageDisplayTests: XCTestCase {
 
         d.setPaused(false)
         XCTAssertEqual(d.snapshot, UsageSnapshot(a), "恢复后立即显示当前真实值")
+    }
+
+    /// 冻结对**瞬时**速率同样生效：表盘读的是它，暂停就必须停住。
+    func testFreezeAppliesToInstantRate() {
+        let (a, d) = make(nowOffsetMin: 10)
+        d.ingest(entry(min: 10, input: 15_000, key: "k1"))
+        a.recompute()
+        let atPause = d.snapshot
+        XCTAssertEqual(atPause.instantTokensPerMinute, 30_000, accuracy: 1e-9)
+
+        d.setPaused(true)
+        d.ingest(entry(min: 10, input: 500_000, key: "k2"))
+        a.recompute()
+        XCTAssertEqual(d.snapshot.instantTokensPerMinute, 30_000, accuracy: 1e-9,
+                       "暂停期间瞬时速率必须冻结")
+        XCTAssertGreaterThan(a.instantTokensPerMinute, 1_000_000,
+                             "而聚合器本身必须继续走")
+
+        d.setPaused(false)
+        XCTAssertEqual(d.snapshot.instantTokensPerMinute, a.instantTokensPerMinute,
+                       accuracy: 1e-9)
     }
 
     /// 启动时若持久化状态为暂停，显示同样从冻结开始。

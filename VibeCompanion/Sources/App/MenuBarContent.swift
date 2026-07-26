@@ -101,8 +101,11 @@ struct MenuBarContent: View {
 
     /// 按 ccusage 档位取表情。
     /// 原实现按 effectiveTokens 口径写死 2000/10000/30000，改用 Total 后已失效。
+    ///
+    /// "睡着"改由**瞬时**速率判定：ccusage 的区块速率在停手后会冻结不动
+    /// （分母是「末条 − 首条」，空闲不稀释），拿它判空闲永远醒着。
     private func petEmoji(_ snap: UsageSnapshot) -> String {
-        guard !snap.isIdle, snap.hasBurnRate else { return "😴" }
+        guard snap.instantTokensPerMinute > 0, snap.hasBurnRate else { return "😴" }
         switch snap.level {
         case .normal: return "🐢"
         case .moderate: return "🐰"
