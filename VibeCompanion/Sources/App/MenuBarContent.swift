@@ -21,22 +21,25 @@ func formatCostPerHour(_ cost: Double?) -> String {
 /// 菜单栏下拉内容
 struct MenuBarContent: View {
     @ObservedObject var coordinator: AppCoordinator
+    /// 只用于触发重绘：读数一律走 `coordinator.snapshot`，暂停时它是冻结快照。
     @ObservedObject var aggregator: TokenAggregator
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let snap = coordinator.snapshot
+
+        return VStack(alignment: .leading, spacing: 8) {
             // 实时状态
             section {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("当前速率").font(.caption).foregroundColor(.secondary)
-                        Text(speedometerDisplay(rpm: aggregator.tokensPerMinute,
-                                                hasBurnRate: aggregator.hasBurnRate))
+                        Text(speedometerDisplay(rpm: snap.tokensPerMinute,
+                                                hasBurnRate: snap.hasBurnRate))
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.orange)
                     }
                     Spacer()
-                    Text(petEmoji(aggregator.level))
+                    Text(petEmoji(snap))
                         .font(.system(size: 36))
                 }
             }
@@ -44,25 +47,25 @@ struct MenuBarContent: View {
             // ccusage 档位（依据 input+output 速率，与表盘配色口径不同）
             section {
                 statRow(label: "档位",
-                        value: "\(burnRateLevelLabel(aggregator.level))"
-                             + "  (\(speedometerFormat(aggregator.indicatorTokensPerMinute))/min)")
+                        value: "\(burnRateLevelLabel(snap.level))"
+                             + "  (\(speedometerFormat(snap.indicatorTokensPerMinute))/min)")
             }
 
             // 估算花费
             section {
                 statRow(label: "估算花费",
-                        value: formatCostPerHour(aggregator.costPerHour))
+                        value: formatCostPerHour(snap.costPerHour))
             }
 
             // 今日累计
             section {
-                statRow(label: "今日累计", value: formatTokens(aggregator.todayTotal))
+                statRow(label: "今日累计", value: formatTokens(snap.todayTotal))
             }
 
             Divider()
 
-            // 暂停/恢复
-            Button(coordinator.isPaused ? "▶ 恢复采集" : "⏸ 暂停采集") {
+            // 冻结/恢复显示（统计始终在跑）
+            Button(coordinator.isPaused ? "▶ 恢复显示" : "⏸ 暂停显示") {
                 coordinator.isPaused.toggle()
             }
             .keyboardShortcut("p")
@@ -94,9 +97,9 @@ struct MenuBarContent: View {
 
     /// 按 ccusage 档位取表情。
     /// 原实现按 effectiveTokens 口径写死 2000/10000/30000，改用 Total 后已失效。
-    private func petEmoji(_ level: BurnRateLevel) -> String {
-        guard !aggregator.isIdle, aggregator.hasBurnRate else { return "😴" }
-        switch level {
+    private func petEmoji(_ snap: UsageSnapshot) -> String {
+        guard !snap.isIdle, snap.hasBurnRate else { return "😴" }
+        switch snap.level {
         case .normal: return "🐢"
         case .moderate: return "🐰"
         case .high: return "🚀"

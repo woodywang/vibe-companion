@@ -40,14 +40,15 @@ Vibe Companion 目前是**纯本地的 macOS 菜单栏 App**，没有服务端�
 | Collectors | `Collectors/Collector.swift` | 协调 tailer + 解析器 + 事件产出 |
 | Overlay | `Overlay/SpeedometerView.swift` | 纯 SwiftUI 绘制的速度表（表盘/刻度/指针/LCD 数字窗） |
 | Overlay | `Overlay/FloatingPetPanel.swift` | 透明置顶 `NSPanel` + SwiftUI 内容（速度表 + 速率气泡） |
-| Settings | `Settings/SettingsView.swift` | 设置窗口（暂停采集开关） |
+| Settings | `Settings/SettingsView.swift` | 设置窗口（暂停显示开关） |
+| App | `App/UsageDisplay.swift` | 展示层读数快照 + 暂停冻结（摄入永不中断） |
 
 ## 数据流：一次 token 用量的旅程
 
 1. 用户在 Claude Code 完成一回合 → 追加一行到 `~/.claude/projects/.../session.jsonl`。
 2. `JsonlTailer` 的 FSEvents 触发 → 读增量 → `onLine`。
 3. `ClaudeParser` 提取 `message.usage` → 产出 `UsageEvent`。
-4. `AppCoordinator` 检查未暂停后交给 `TokenAggregator.ingest`。
+4. `AppCoordinator` 经 `UsageDisplay.ingest` 交给 `TokenAggregator.ingest`——**无论是否暂停**。暂停丢弃会让 tailer offset 照常前进而活跃块永久缺条目，burn rate 算出的是错值而非过时值；暂停只冻结 `UsageDisplay` 的读数快照。
 5. 聚合器更新 60s 窗口 → `tokensPerMinute` 变化 → 悬浮速度表指针转动。菜单栏图标固定不动，速率只在下拉面板里以文字呈现。
 
 数据全程只存在内存中，App 退出即清空。

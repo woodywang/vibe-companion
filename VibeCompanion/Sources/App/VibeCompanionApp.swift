@@ -36,13 +36,22 @@ final class AppCoordinator: ObservableObject {
     lazy var aggregator = TokenAggregator(pricing: pricingStore,
                                           retentionHours: AppConfig.windowRetentionHours,
                                           idleTimeoutSeconds: AppConfig.idleTimeoutSeconds)
+    /// 展示层读数口径：摄入永不中断，暂停只冻结这里的快照。
+    lazy var display = UsageDisplay(aggregator: aggregator, paused: isPaused)
     private(set) var collector: Collector?
     private var panel: FloatingPetPanel?
 
-    /// 暂停后不再把新事件喂给聚合器（持久化到 UserDefaults）
+    /// 暂停只冻结显示，统计照常进行（持久化到 UserDefaults）。
+    /// key 仍为 `vc.paused`，改名会丢用户已有设置。
     @Published var isPaused: Bool = Settings.shared.isPaused {
-        didSet { Settings.shared.isPaused = isPaused }
+        didSet {
+            Settings.shared.isPaused = isPaused
+            display.setPaused(isPaused)
+        }
     }
+
+    /// 界面唯一的读数来源：暂停时是冻结快照，否则是聚合器实时值。
+    var snapshot: UsageSnapshot { display.snapshot }
 
     /// 速度表量程，改动后悬浮窗立即重建以套用新刻度。
     @Published var gaugeScaleID: String = Settings.shared.gaugeScaleID {
@@ -59,10 +68,10 @@ final class AppCoordinator: ObservableObject {
     private func start() {
         // 采集器 -> 聚合器
         let c = Collector(backfillWindowHours: AppConfig.backfillWindowHours)
+        // 暂停期间同样摄入：丢弃会让活跃块永久缺条目，速率算错而非过时。
         c.onEntry = { [weak self] entry in
             Task { @MainActor in
-                guard let self, !self.isPaused else { return }
-                self.aggregator.ingest(entry)
+                self?.display.ingest(entry)
             }
         }
         c.start()
@@ -79,6 +88,7 @@ final class AppCoordinator: ObservableObject {
     private func showFloatingPanel() {
         let p = FloatingPetPanel()
         let hosting = NSHostingView(rootView: FloatingPetContent(
+            coordinator: self,
             aggregator: aggregator,
             gaugeScaleID: gaugeScaleID))
         p.contentView = hosting

@@ -5,9 +5,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("采集") {
-                Toggle("暂停采集", isOn: $coordinator.isPaused)
-                Text("暂停后仍会监听会话文件，但不再统计新的 token 用量。")
+            Section("显示") {
+                Toggle("暂停显示", isOn: $coordinator.isPaused)
+                Text("暂停只冻结界面读数，统计不会中断——会话文件照常摄入，"
+                     + "恢复后数值立即反映真实用量。")
                     .font(.caption).foregroundColor(.secondary)
             }
 
