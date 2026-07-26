@@ -9,18 +9,30 @@ final class SpeedometerLogicTests: XCTestCase {
 
     func testGreenBelowYellowFraction() {
         XCTAssertEqual(gaugeZone(value: 0, scale: scale), .green)
-        XCTAssertEqual(gaugeZone(value: 599_999, scale: scale), .green)
+        XCTAssertEqual(gaugeZone(value: 699_999, scale: scale), .green)
     }
 
     func testYellowBetweenFractions() {
-        XCTAssertEqual(gaugeZone(value: 600_000, scale: scale), .yellow)
-        XCTAssertEqual(gaugeZone(value: 849_999, scale: scale), .yellow)
+        XCTAssertEqual(gaugeZone(value: 700_000, scale: scale), .yellow)
+        XCTAssertEqual(gaugeZone(value: 899_999, scale: scale), .yellow)
     }
 
     func testRedAboveRedFraction() {
-        XCTAssertEqual(gaugeZone(value: 850_000, scale: scale), .red)
+        XCTAssertEqual(gaugeZone(value: 900_000, scale: scale), .red)
         XCTAssertEqual(gaugeZone(value: 1_000_000, scale: scale), .red)
         XCTAssertEqual(gaugeZone(value: 5_000_000, scale: scale), .red)
+    }
+
+    /// 阈值实测标定：旧的 0.60 / 0.85 在新量程下让表盘 46% 的时间是黄色。
+    /// 新阈值在默认对数量程上把黄线放到约 1.26M、红线约 5.01M。
+    func testColorThresholdsLandOnCalibratedRates() {
+        let log = LogGaugeScale()
+        XCTAssertEqual(gaugeZone(value: 1_200_000, scale: log), .green)
+        XCTAssertEqual(gaugeZone(value: 1_300_000, scale: log), .yellow)
+        XCTAssertEqual(gaugeZone(value: 4_900_000, scale: log), .yellow)
+        XCTAssertEqual(gaugeZone(value: 5_100_000, scale: log), .red)
+        // 中位速率必须是绿的——黄色成了常态就不再传达信息
+        XCTAssertEqual(gaugeZone(value: 613_000, scale: log), .green)
     }
 
     /// 分区随量程走，换 scale 不用重新标定
@@ -85,6 +97,45 @@ final class SpeedometerLogicTests: XCTestCase {
     func testFormatMillions() {
         XCTAssertEqual(speedometerFormat(1_000_000), "1.00M")
         XCTAssertEqual(speedometerFormat(2_340_000), "2.34M")
+    }
+
+    // MARK: 刻度标签的紧凑格式
+
+    /// 整数量级不带小数——这是宽度减半的来源。
+    func testTickLabelDropsDecimalsOnWholeMagnitudes() {
+        XCTAssertEqual(gaugeTickLabel(10_000), "10k")
+        XCTAssertEqual(gaugeTickLabel(100_000), "100k")
+        XCTAssertEqual(gaugeTickLabel(1_000_000), "1M")
+        XCTAssertEqual(gaugeTickLabel(10_000_000), "10M")
+        XCTAssertEqual(gaugeTickLabel(2_000_000), "2M")
+        XCTAssertEqual(gaugeTickLabel(750_000), "750k")
+    }
+
+    /// 非整数才带一位小数。
+    func testTickLabelKeepsOneDecimalWhenNeeded() {
+        XCTAssertEqual(gaugeTickLabel(1_500_000), "1.5M")
+        XCTAssertEqual(gaugeTickLabel(7_500_000), "7.5M")
+        XCTAssertEqual(gaugeTickLabel(1_080_000), "1.1M")
+        XCTAssertEqual(gaugeTickLabel(12_300), "12.3k")
+    }
+
+    /// k / M 分界，以及"四舍五入后会进位"的边界不得写出 `1000k`。
+    func testTickLabelUnitBoundaries() {
+        XCTAssertEqual(gaugeTickLabel(0), "0")
+        XCTAssertEqual(gaugeTickLabel(999), "999")
+        XCTAssertEqual(gaugeTickLabel(1_000), "1k")
+        XCTAssertEqual(gaugeTickLabel(999_000), "999k")
+        XCTAssertEqual(gaugeTickLabel(999_999), "1M")
+        XCTAssertEqual(gaugeTickLabel(1_000_001), "1M")
+    }
+
+    /// 与 LCD 口径分离：LCD 保留小数位，改刻度标签不得动到它。
+    func testTickLabelIsShorterThanLcdFormat() {
+        for value in [10_000.0, 100_000, 1_000_000, 10_000_000] {
+            XCTAssertLessThan(gaugeTickLabel(value).count, speedometerFormat(value).count,
+                              "\(value)")
+        }
+        XCTAssertEqual(speedometerFormat(1_000_000), "1.00M")   // LCD 未受影响
     }
 
     // MARK: 显示串

@@ -111,14 +111,25 @@ struct SpeedometerView: View {
         return out
     }
 
+    /// 刻度数字。
+    ///
+    /// 用 `gaugeTickLabel` 而非 `speedometerFormat`：后者固定小数位，
+    /// 把 `10k` 写成 `10.0k`，宽度多出近一倍。
+    ///
+    /// `.position()` 把文本以点为中心向两侧展开且不受父容器约束，
+    /// 相邻刻度过宽就会叠字（实机出现过 `400.0k600.0k`）。
+    /// `.lineLimit(1)` + `.fixedSize()` 保证标签永远单行、按内容自然宽度，
+    /// 不会被外部布局压成换行或截断。
     private var numbers: some View {
         ZStack {
             ForEach(scale.majorTicks, id: \.self) { value in
                 let ang = scale.angle(for: value)
                 let pos = polarPoint(center: center, radius: 50, angleDeg: ang)
-                Text(speedometerFormat(value))
+                Text(gaugeTickLabel(value))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
+                    .lineLimit(1)
+                    .fixedSize()
                     .position(x: pos.x, y: pos.y)
             }
         }
@@ -133,9 +144,14 @@ struct SpeedometerView: View {
                     RoundedRectangle(cornerRadius: 3)
                         .stroke(Color(hex: 0x3A_3D_42), lineWidth: 1)
                 )
+            // 窗格固定 54×18pt，读数却可能长到 `100.00M`：约束在 50pt 内
+            // 单行显示，必要时缩字，绝不撑破边框。
             Text(display)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(zoneColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(width: 50)
         }
         .position(x: center.x, y: center.y + 49)
     }
