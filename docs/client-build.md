@@ -21,32 +21,27 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 # 从仓库根目录
 ./scripts/build-app.sh             # debug 版
 ./scripts/build-app.sh release     # release 版（优化）
-open client/.build/app/VibeCompanion.app
+open .build/app/VibeCompanion.app
 ```
 
 仅验证编译（不打包）：
 
 ```bash
-swift build -C client
+swift build
 ```
 
 ## 技术栈
 
-- **SwiftPM**（`Package.swift`）管理依赖与构建，而非 `.xcodeproj`。
-- **lottie-ios**（4.6.x）：蹬车动画，`animationSpeed` 映射 token 速率。
-- **GRDB.swift**（6.29.x）：本地 SQLite 缓冲队列。
+- **SwiftPM**（`Package.swift`）管理构建，而非 `.xcodeproj`。
+- **零第三方依赖**：UI 全部为 SwiftUI/AppKit，速度表为纯 SwiftUI 绘制。
 
 ## 首次使用
 
 1. 启动 App（菜单栏出现图标，不出现在 Dock，因 `Info.plist` 的 `LSUIElement=true`）。
-2. 菜单栏图标 -> 「⚙ 设置…」。
-3. 在网站注册账户 -> 登录 -> Dashboard 点「添加设备」获取 Client Token。
-4. 粘贴 Token 到设置页 -> 「保存 Token 并完成注册」。
-5. 修改「服务地址」指向生产后端（默认 `http://localhost:3000`）。
-6. 开始用 Claude Code / Codex CLI 编程，悬浮宠物窗随 token 速率蹬车。
+2. 开始用 Claude Code / Codex CLI 编程，悬浮速度表随 token 速率转动。
 
-## 关于 Lottie 形象
+App 无需登录或任何配置，用户数据不外发；唯一的出网请求是可选拉取 LiteLLM 公开定价表用于估算花费，失败即回退内置快照。需要暂停时用菜单栏的「⏸ 暂停采集」（⌘P）或设置窗口的开关。
 
-MVP 使用 `Resources/Animations/cycling_pet.json` 作为占位蹬车动画（手写简易 JSON：橙黄色身体 + 两个旋转的轮子）。
-替换形象：将新的 Lottie JSON 放入该目录，在 `LottiePetView` 调用处改 `animationName` 即可。
-后续可扩展多档位形象（idle/慢骑/飞驰/喷火）与 Rive 状态机。
+## 关于速度表
+
+`Overlay/SpeedometerView.swift` 用 SwiftUI `Canvas`/`Path` 绘制。量程由用户在设置中选择（线性 / 对数 / 自适应），三种实现与 `GaugeScale` 协议在 `Overlay/GaugeScale.swift`；指针角度、LCD 读数与表盘配色统一由 `Core/SpeedometerLogic.swift` 按**指针行程比例**换算，保证配色与指针位置同源。对应单测在 `Tests/GaugeScaleTests.swift` 与 `Tests/SpeedometerLogicTests.swift`。
