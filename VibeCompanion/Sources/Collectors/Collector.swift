@@ -54,12 +54,17 @@ final class Collector {
         self.adapters = adapters
         self.backfillWindow = backfillWindowHours * 3600
         self.now = now
-    }
-
-    func start() {
+        // 在 init 而非 start() 里接线：rescan 是可以独立调用的，
+        // 把回调绑定绑在 start() 上等于给"先 rescan 后 start"埋了个静默丢数据的坑。
         tailer.onLine = { [weak self] url, line in
             self?.handle(url: url, line: line)
         }
+    }
+
+    /// 是否正在监听该文件（转发给 tailer——它才是接管成功与否的权威）。
+    func isWatching(_ url: URL) -> Bool { tailer.isWatching(url) }
+
+    func start() {
         // 首次回扫派到后台，`start()` 立即返回——见 `scanQueue` 的说明
         scanQueue.async { [weak self] in self?.rescan() }
         // 每 10s 重新扫描，捕获新创建的 session 文件。
@@ -108,24 +113,58 @@ final class Collector {
 
     // MARK: - internal
 
+    /// 文件是否仍然活跃到值得占一个 fd。
+    ///
+    /// 判据是 mtime 而非内容：一次 `stat` 就够，不必像 `shouldBackfill` 那样
+    /// 去读文件尾部再解析时间戳——那是每轮对每个文件都要付的成本。
+    /// 拿不到属性时返回 true：宁可多监听，不可漏数据。
+    private func isActive(_ url: URL) -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let mtime = attrs[.modificationDate] as? Date
+        else { return true }
+        return now().timeIntervalSince(mtime) <= backfillWindow
+    }
+
     /// internal（而非 private）以便测试直接并发驱动 rescan 与 handle。
     func rescan() {
+        // 一轮只问一次 tailer：`isWatching` 每次都要 queue.sync 进 tailer 队列，
+        // 逐文件问就是每 10 秒上百次同步往返，且会被正在回扫大文件的队列堵住。
+        // 快照可能略旧，但 `watch` 本身幂等（内部按 descriptors 判重），最坏是多调一次空转。
+        var watched = tailer.watchedURLs()
+        var live: Set<URL> = []
         for adapter in adapters {
             // discoverFiles 是文件系统 I/O：锁外调用
             for file in adapter.discoverFiles() {
+                // 会话目录只增不减，且 discoverFiles 没有任何时间过滤。
+                // 不筛一道的话，每个历史会话文件都会永久占住一个 O_EVTONLY fd
+                // 与一个 DispatchSource，常驻数日必然撞上 RLIMIT_NOFILE。
+                guard isActive(file) else { continue }
+                live.insert(file)
+                // 判据是 tailer 有没有**真的**接管，而不是我们登记过没有：
+                // `watch` 会在 open() 失败（fd 耗尽、文件刚被删）时静默放弃，
+                // 拿自己的登记表当判据会把这些文件永久拉黑、再也不重试。
+                guard !watched.contains(file) else { continue }
                 // 先登记再 watch：watch 会同步触发首次读取 -> onLine -> handle，
                 // 那时字典里必须已有该 url，否则首批数据全被 handle 的 guard 丢掉。
                 mapsLock.lock()
-                let isNew = ownerByFile[file] == nil
-                if isNew {
+                if ownerByFile[file] == nil {
                     ownerByFile[file] = adapter
                     contextByFile[file] = ParseContext()
                 }
                 mapsLock.unlock()
-                guard isNew else { continue }
                 // 锁外：watch 内部 queue.sync 进 tailer 队列，持锁调用会死锁
                 tailer.watch(file, startAtBeginning: shouldBackfill(file, adapter: adapter))
+                watched.insert(file)
             }
+        }
+        // 回收变冷的文件。只在首次发现时过滤是不够的——App 常驻期间文件是
+        // 逐渐变冷的，不主动还回去，fd 占用依然单调增长。
+        //
+        // 只释放 fd 与 DispatchSource，`ownerByFile` / `contextByFile` 与
+        // tailer 的 `offsets` 都留着：文件再度活跃时从原游标续读，
+        // 既不重吐历史，也不丢 Codex 的 sticky model。
+        for url in watched.subtracting(live) {
+            tailer.unwatch(url)
         }
     }
 

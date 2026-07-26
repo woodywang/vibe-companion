@@ -146,6 +146,126 @@ final class CollectorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(final, 2)
     }
 
+    // MARK: watcher 生命周期
+
+    /// 首轮 watch 失败的文件，后续 rescan 必须重试。
+    ///
+    /// 修复前：rescan 在调用 `watch` **之前**就无条件登记 ownerByFile，且从不
+    /// 检查 watch 是否成功；`startWatching` 在 `open()` 失败时静默 return。
+    /// 于是文件停在"已登记但没监听"的状态，而 rescan 的新文件判据正是
+    /// ownerByFile，此后每轮都判定非新文件而跳过——该会话永久不被采集。
+    /// 生产触发路径是 fd 耗尽，这里用"文件还不存在"制造同一种 open 失败。
+    func testRetriesWatchAfterAFailedOpen() throws {
+        let line = """
+        {"type":"assistant","requestId":"r1","timestamp":"2026-07-25T07:00:00.000Z",\
+        "message":{"id":"m1","model":"claude-opus-5",\
+        "usage":{"input_tokens":10,"output_tokens":20}}}
+        """
+        let url = dir.appendingPathComponent("late.jsonl")
+        let c = Collector(adapters: [FixedFileAdapter(inner: ClaudeAdapter(roots: []),
+                                                      files: [url])],
+                          backfillWindowHours: 24 * 365,
+                          now: { Date(timeIntervalSince1970: 1_784_966_400) })
+        // onEntry 从 tailer 队列同步回调（watch 的首次读取走 queue.sync）
+        let lock = NSLock()
+        var got: [UsageEntry] = []
+        c.onEntry = { lock.lock(); got.append($0); lock.unlock() }
+
+        c.rescan()                                   // 文件尚不存在 -> open 失败
+        _ = try write(line + "\n", name: "late.jsonl")
+        c.rescan()                                   // 必须重新尝试
+
+        lock.lock(); let n = got.count; lock.unlock()
+        XCTAssertEqual(n, 1, "首轮 open 失败后，后续 rescan 必须重新 watch")
+        c.stop()
+    }
+
+    /// 长期没写过的会话文件不该一直占着 fd。
+    ///
+    /// `discoverFiles()` 没有任何时间过滤，而会话目录只增不减；每个被发现的
+    /// 文件都会永久持有一个 O_EVTONLY fd 与一个 DispatchSource，只有整体
+    /// `stopAll()` 才释放。菜单栏 App 常驻数日，fd 数单调增长直到撞上
+    /// RLIMIT_NOFILE（经 LaunchServices 启动的 .app 实测软限 256）。
+    func testDoesNotWatchFilesOutsideTheActivityWindow() throws {
+        let fresh = try write("x\n", name: "fresh.jsonl")
+        let stale = try write("x\n", name: "stale.jsonl")
+        // mtime 相对注入的 now 钉死，别让真实挂钟渗进断言
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-60)], ofItemAtPath: fresh.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-10 * 3600)], ofItemAtPath: stale.path)
+
+        let c = collector(FakeAdapter(files: [fresh, stale]))
+        c.rescan()
+
+        XCTAssertTrue(c.isWatching(fresh))
+        XCTAssertFalse(c.isWatching(stale), "10 小时没写过的文件不该占着 fd")
+        c.stop()
+    }
+
+    /// 已在监听的文件一旦不再活跃，必须主动释放 fd 与 DispatchSource。
+    /// 只在首次发现时过滤是不够的——App 常驻期间文件是逐渐变冷的。
+    func testReleasesWatcherWhenAWatchedFileGoesStale() throws {
+        let url = try write("x\n", name: "cooling.jsonl")
+        let c = collector(FakeAdapter(files: [url]))
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-60)], ofItemAtPath: url.path)
+        c.rescan()
+        XCTAssertTrue(c.isWatching(url))
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-10 * 3600)],
+            ofItemAtPath: url.path)
+        c.rescan()
+
+        XCTAssertFalse(c.isWatching(url), "变冷的文件必须被回收，否则 fd 只增不减")
+        c.stop()
+    }
+
+    /// 回收之后文件又被写入 -> 必须重新接管，且从上次的游标继续（不重复吐旧行）。
+    func testResumesAStaleFileAfterItIsWrittenAgain() throws {
+        let first = """
+        {"type":"assistant","requestId":"r1","timestamp":"2026-07-25T07:00:00.000Z",\
+        "message":{"id":"m1","model":"claude-opus-5","usage":{"input_tokens":10,"output_tokens":20}}}
+        """
+        let second = """
+        {"type":"assistant","requestId":"r2","timestamp":"2026-07-25T07:05:00.000Z",\
+        "message":{"id":"m2","model":"claude-opus-5","usage":{"input_tokens":30,"output_tokens":40}}}
+        """
+        // 记录时间戳是 07:00 / 07:05，把 now 放在 07:10，两条都落在 6h 回扫窗口内
+        let clock = Date(timeIntervalSince1970: 1_784_963_400)
+        let url = try write(first + "\n", name: "resume.jsonl")
+        let c = Collector(adapters: [FixedFileAdapter(inner: ClaudeAdapter(roots: []),
+                                                      files: [url])],
+                          backfillWindowHours: 6,
+                          now: { clock })
+        let lock = NSLock()
+        var keys: [String] = []
+        c.onEntry = { e in lock.lock(); keys.append(e.dedupKey ?? ""); lock.unlock() }
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: clock.addingTimeInterval(-60)], ofItemAtPath: url.path)
+        c.rescan()                                   // 接管并回扫第一行
+        try FileManager.default.setAttributes(
+            [.modificationDate: clock.addingTimeInterval(-10 * 3600)],
+            ofItemAtPath: url.path)
+        c.rescan()                                   // 变冷 -> 回收
+        XCTAssertFalse(c.isWatching(url))
+
+        // 会话被恢复：追加一行，mtime 也随之刷新
+        let handle = try FileHandle(forWritingTo: url)
+        handle.seekToEndOfFile()
+        handle.write(Data((second + "\n").utf8))
+        try handle.close()
+        c.rescan()                                   // 必须重新接管
+
+        XCTAssertTrue(c.isWatching(url))
+        lock.lock(); let seen = keys; lock.unlock()
+        XCTAssertEqual(seen, ["m1:r1", "m2:r2"], "重新接管应从旧游标继续，而不是重吐整个文件")
+        c.stop()
+    }
+
     /// 包装器：在 discoverFiles 里睡一觉，模拟"回扫是几百毫秒文件 I/O"
     private struct SlowDiscoverAdapter: AgentAdapter {
         let inner: AgentAdapter
