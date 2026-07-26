@@ -83,21 +83,34 @@ JsonlTailer ──(新增行)──> Collector ──(UsageEntry)──> TokenAg
 - `UsageWindow` 维护最近 **6 小时**的原始 entry，按 **entry 自身的 timestamp**（不是到达时间）有序插入。
 - 去重键是 `messageId:requestId`（**不是**行内 `uuid`），且为**替换**语义：非 sidechain > token 总量大 > 带 speed 字段。实测去重掉约 56% 的行。
 - 每 2 秒把窗口快照切成 **5 小时计费块**：起点 floor 到 UTC 整点；`距块起点 > 5h` 或 `距上条 > 5h` 开新块（均为严格大于），后者额外插入 gap 伪块。
-- 活跃块的 burn rate = `TokenCounts.total ÷ (末条 entry − 首条 entry)` 分钟数。**Total 含 cache_read**。
+- 活跃块的 burn rate = `TokenCounts.total ÷ (末条 entry − 首条 entry)` 分钟数。**Total 含 cache_read**。空闲时冻结（分母不含空闲时间），与 ccusage 一致。
 - 另有 `tokensPerMinuteForIndicator`（仅 input + output），按阈值 2000/5000 映射为 Normal/Moderate/High，显示在菜单栏。
 - cost 按 entry 逐条计价后求和；定价来自内置 LiteLLM 快照 → 硬编码覆盖 → 磁盘缓存(24h) → 线上抓取。
+- 以上全部只喂菜单栏，**未经任何加工**。
+
+#### 3b. 瞬时速率（表盘专用，非 ccusage 口径）
+
+区块速率是全程平均，实测块启动 5 分钟后相邻更新中位跳变仅 0.04%——指针对新 prompt 毫无反应。表盘因此另走一条时间衰减 EMA（`Core/InstantRate.swift`）：
+
+- 经过 Δt 秒先衰减 `value *= exp(-Δt / τ)`，摄入一条 `v` tokens 的记录则 `value += v / τ * 60`。稳态下恒定流量 F tok/min 收敛到 F。
+- 喂入的是每条记录的 `counts.total`（与表盘既有口径一致，含 cache_read），且**只喂去重后被接受的记录**。
+- 时刻取 **entry 自身的 timestamp** 而非到达时间——否则回扫 6 小时的历史会在一瞬间全部砸进 EMA 把指针顶死。乱序/迟到的时间戳只计入、不倒表。
+- τ 由用户在设置中选（15 / 30 / 60 / 120 秒，默认 30 秒），改档立即生效并保留当前读数。
+- 自适应量程的 `recentPeak` 跟的也是它——量程上限必须与指针同源。
 
 #### 与 ccusage 的偏离
 
 | 项 | ccusage | 本实现 | 理由 |
 |---|---|---|---|
-| 空闲 | 速率冻结至块失活 | 距末条 entry > 90s 归零 | 常驻仪表需要"熄火"反馈 |
+| 表盘取值 | 只有区块速率 | 表盘走瞬时 EMA；菜单栏为纯 ccusage 行为 | 速度表该显示当前速度而非全程平均 |
 | 定价缓存 | 无磁盘缓存 | 磁盘缓存 TTL 24h | 桌面应用频繁重启 |
 | indicator 用途 | 驱动配色徽章 | 菜单栏文字 | 表盘配色与指针角度须同源 |
 | 内存范围 | 全量读入 | 仅最近 6 小时 | 常驻进程不能无界增长 |
 | cost 模式 | auto/calculate/display | 固定 calculate | JSONL 中无 `costUSD` 字段 |
 
-以上偏离均**不改变数值**。速度表量程（线性/对数/自适应）由用户在设置中选择，与算法完全解耦。
+以上偏离均**不改变菜单栏的数值**——菜单栏的速率/档位/花费/今日累计与 `ccusage blocks` 一致。表盘是另一个量（瞬时速率），见 3b。
+
+速度表量程（对数 10k–10M 默认 / 线性 0–10M / 自适应）由用户在设置中选择，与算法完全解耦。
 
 ## 延迟特性
 
