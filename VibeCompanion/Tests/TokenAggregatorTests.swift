@@ -45,6 +45,45 @@ final class TokenAggregatorTests: XCTestCase {
                         now: { self.base.addingTimeInterval(nowOffsetMin * 60) })
     }
 
+    // MARK: 去重与瞬时速率
+
+    /// 去重替换时，瞬时速率只应补差值。
+    ///
+    /// Claude 把一次响应写成多行、后写的行 token 总量更大，于是命中替换语义。
+    /// `insert` 对"新增"和"替换"都报 accepted，而 EMA 是纯累加的：旧条目的
+    /// token 已经计入且撤不回来，再把新条目全额计入就是把同一条消息数两遍。
+    /// 实测本仓库的 golden fixture：2863 次接受插入里 972 次是替换，
+    /// EMA 计入 2.30 亿 token 而去重真值只有 1.79 亿——整体虚高 28%。
+    ///
+    /// 判据取"最终状态等价"：先 100 再替换成 180，读数必须与直接摄入 180 相同。
+    func testReplacementOnlyAddsTheTokenDeltaToInstantRate() {
+        let a = aggregator(nowOffsetMin: 0)
+        a.ingest(entry(min: 0, output: 100, key: "k"))
+        a.recompute()
+        let afterFirst = a.instantTokensPerMinute
+        a.ingest(entry(min: 0, output: 180, key: "k"))   // 同键、更大总量 -> 替换
+        a.recompute()
+
+        let single = aggregator(nowOffsetMin: 0)
+        single.ingest(entry(min: 0, output: 180, key: "k"))
+        single.recompute()
+
+        XCTAssertEqual(a.instantTokensPerMinute, single.instantTokensPerMinute, accuracy: 1e-6,
+                       "替换后的读数应与一次性摄入最终值一致，而不是两条相加")
+        XCTAssertGreaterThan(a.instantTokensPerMinute, afterFirst, "差值仍要计入")
+    }
+
+    /// 被拒绝的重复条目完全不进 EMA（既有语义，防回归）。
+    func testRejectedDuplicateDoesNotTouchInstantRate() {
+        let a = aggregator(nowOffsetMin: 0)
+        a.ingest(entry(min: 0, output: 180, key: "k"))
+        a.recompute()
+        let before = a.instantTokensPerMinute
+        a.ingest(entry(min: 0, output: 100, key: "k"))   // 更小总量 -> 拒绝
+        a.recompute()
+        XCTAssertEqual(a.instantTokensPerMinute, before, accuracy: 1e-9)
+    }
+
     // MARK: 主速率
 
     func testRateUsesTotalTokensIncludingCacheRead() {

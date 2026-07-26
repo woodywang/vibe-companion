@@ -25,7 +25,7 @@ final class UsageWindowTests: XCTestCase {
     func testDuplicateKeyWithLowerTotalIsRejected() {
         let w = UsageWindow()
         w.insert(entry(min: 0, total: 100, key: "k"))
-        XCTAssertFalse(w.insert(entry(min: 1, total: 50, key: "k")))
+        XCTAssertFalse(w.insert(entry(min: 1, total: 50, key: "k")).accepted)
         XCTAssertEqual(w.count, 1)
         XCTAssertEqual(w.snapshot()[0].counts.total, 100)
     }
@@ -34,7 +34,7 @@ final class UsageWindowTests: XCTestCase {
     func testReplacementRemovesOldEntryFromArray() {
         let w = UsageWindow()
         w.insert(entry(min: 0, total: 100, key: "k"))
-        XCTAssertTrue(w.insert(entry(min: 5, total: 200, key: "k")))
+        XCTAssertTrue(w.insert(entry(min: 5, total: 200, key: "k")).accepted)
         XCTAssertEqual(w.count, 1)
         let only = w.snapshot()[0]
         XCTAssertEqual(only.counts.total, 200)
@@ -54,7 +54,7 @@ final class UsageWindowTests: XCTestCase {
         let w = UsageWindow()
         w.insert(entry(min: 0, total: 500, key: "k", isSidechain: true))
         // 非 sidechain 即使 token 更少也应取代
-        XCTAssertTrue(w.insert(entry(min: 0, total: 1, key: "k", isSidechain: false)))
+        XCTAssertTrue(w.insert(entry(min: 0, total: 1, key: "k", isSidechain: false)).accepted)
         XCTAssertEqual(w.snapshot()[0].counts.total, 1)
     }
 
@@ -91,7 +91,7 @@ final class UsageWindowTests: XCTestCase {
         w.evict(now: base.addingTimeInterval(7 * 3600))
         XCTAssertEqual(w.count, 0)
         // 索引已清，同键条目应能重新插入（即使 token 更少）
-        XCTAssertTrue(w.insert(entry(min: 60 * 7, total: 1, key: "k")))
+        XCTAssertTrue(w.insert(entry(min: 60 * 7, total: 1, key: "k")).accepted)
         XCTAssertEqual(w.count, 1)
     }
 

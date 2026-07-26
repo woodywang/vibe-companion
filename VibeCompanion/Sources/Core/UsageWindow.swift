@@ -21,18 +21,38 @@ final class UsageWindow {
 
     var count: Int { sorted.count }
 
-    /// 插入一条 entry。返回 false 表示因去重被拒绝。
+    /// 插入一条 entry 的结果。
+    ///
+    /// 区分"新增"与"替换"不只是为了表达力：窗口是全量重算的，替换对它而言
+    /// 无非是移一条进、移一条出；但下游的瞬时速率 EMA 是**纯累加**的，
+    /// 被替换掉的旧条目已经计入且撤不回来。只有把旧条目一并交出去，
+    /// 调用方才可能只补差值而不是把同一条消息数两遍。
+    enum InsertOutcome: Equatable {
+        /// 新条目入窗
+        case inserted
+        /// 命中去重并判定应当替换，携带被移出的旧条目
+        case replaced(UsageEntry)
+        /// 命中去重并判定应当保留旧条目
+        case rejected
+
+        /// 条目是否进入了窗口。
+        var accepted: Bool { self != .rejected }
+    }
+
+    /// 插入一条 entry。
     @discardableResult
-    func insert(_ entry: UsageEntry) -> Bool {
+    func insert(_ entry: UsageEntry) -> InsertOutcome {
+        var replaced: UsageEntry?
         if let key = entry.dedupKey {
             if let existing = byKey[key] {
-                guard shouldReplace(candidate: entry, existing: existing) else { return false }
+                guard shouldReplace(candidate: entry, existing: existing) else { return .rejected }
                 remove(existing)
+                replaced = existing
             }
             byKey[key] = entry
         }
         insertSorted(entry)
-        return true
+        return replaced.map { .replaced($0) } ?? .inserted
     }
 
     /// 丢弃 timestamp 早于 `now - retention` 的条目。边界值保留。

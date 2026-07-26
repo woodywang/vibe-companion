@@ -104,14 +104,28 @@ final class TokenAggregator: ObservableObject {
         // 是重复的，全喂进去会把速率抬高一倍有余。
         //
         // 用 `insert` 的返回值而非再判一次键：窗口是去重语义的唯一权威。
-        // （替换语义命中时会返回 true 而旧条目已计入，这点小重复无法从
-        //  返回值里恢复；对一个只用于显示的瞬时读数可以接受。）
-        let accepted = window.insert(entry)
+        let outcome = window.insert(entry)
         dailyWindow.insert(entry)
-        guard accepted else { return }
+
         // 用 entry 自身的 timestamp 而非到达时间：回扫历史时若按到达时间，
         // 6 小时的数据会在一瞬间全部砸进 EMA，指针直接顶死。
-        instantRate.ingest(tokens: Double(entry.counts.total), at: entry.timestamp)
+        switch outcome {
+        case .rejected:
+            return
+        case .inserted:
+            instantRate.ingest(tokens: Double(entry.counts.total), at: entry.timestamp)
+        case .replaced(let old):
+            // 只补差值。旧条目的 token 已经计入，而 EMA 是纯累加、撤不回来；
+            // 全额再计一次就是把同一条消息数两遍（golden fixture 实测虚高 28%）。
+            //
+            // 差值为负时（sidechain 优先规则可能让总量更小的条目胜出）不做处理：
+            // 纯累加的 EMA 没有撤回操作，留下的是一个有界的偏高，
+            // 远好于把整条重新计一遍。
+            let delta = Double(entry.counts.total) - Double(old.counts.total)
+            if delta > 0 {
+                instantRate.ingest(tokens: delta, at: entry.timestamp)
+            }
+        }
     }
 
     /// 驱逐过期条目、重新分块、更新全部发布状态。
