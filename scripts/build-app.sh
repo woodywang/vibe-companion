@@ -35,6 +35,23 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp "$EXE_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
+# SwiftPM 的资源包（内置 LiteLLM 定价快照）必须一并拷入，否则 `Bundle.module`
+# 只能回退到编译期烘进二进制的 `.build` 绝对路径——App 一旦离开本机、或 `.build`
+# 被清掉，启动即 fatalError：
+#   could not load resource bundle: from <app>/VibeCompanion_VibeCompanion.bundle
+#   or <repo>/client/.build/arm64-apple-macosx/debug/VibeCompanion_VibeCompanion.bundle
+# 两个候选位置都放：Contents/Resources 是 `Bundle.main.resourceURL`，
+# .app 根目录是 `Bundle.main.bundleURL`（错误信息里实际报出的那个）。
+BUNDLE_NAME="${APP_NAME}_${APP_NAME}.bundle"
+BUNDLE_SRC="$(swift build $CONFIG_FLAG --show-bin-path)/$BUNDLE_NAME"
+if [[ -d "$BUNDLE_SRC" ]]; then
+  cp -R "$BUNDLE_SRC" "$APP_BUNDLE/Contents/Resources/$BUNDLE_NAME"
+  cp -R "$BUNDLE_SRC" "$APP_BUNDLE/$BUNDLE_NAME"
+else
+  echo "ERROR: 资源包未找到: $BUNDLE_SRC" >&2
+  exit 1
+fi
+
 # Info.plist: LSUIElement=true 让 App 作为菜单栏常驻（不出现在 Dock）
 # NSAppTransportSecurity: 允许明文 HTTP 连 localhost（dev 后端用 http://localhost:3000）
 cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
