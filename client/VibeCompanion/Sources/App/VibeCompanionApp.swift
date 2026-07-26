@@ -8,7 +8,7 @@ struct VibeCompanionApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContent(coordinator: coordinator)
+            MenuBarContent(coordinator: coordinator, aggregator: coordinator.aggregator)
         } label: {
             // 固定图标：速率变化由悬浮速度表呈现，菜单栏保持安静
             Label {

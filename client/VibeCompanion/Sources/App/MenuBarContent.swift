@@ -21,6 +21,7 @@ func formatCostPerHour(_ cost: Double?) -> String {
 /// 菜单栏下拉内容
 struct MenuBarContent: View {
     @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var aggregator: TokenAggregator
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,13 +30,13 @@ struct MenuBarContent: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("当前速率").font(.caption).foregroundColor(.secondary)
-                        Text(speedometerDisplay(rpm: coordinator.aggregator.tokensPerMinute,
-                                                hasBurnRate: coordinator.aggregator.hasBurnRate))
+                        Text(speedometerDisplay(rpm: aggregator.tokensPerMinute,
+                                                hasBurnRate: aggregator.hasBurnRate))
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.orange)
                     }
                     Spacer()
-                    Text(petEmoji(coordinator.aggregator.level))
+                    Text(petEmoji(aggregator.level))
                         .font(.system(size: 36))
                 }
             }
@@ -43,19 +44,19 @@ struct MenuBarContent: View {
             // ccusage 档位（依据 input+output 速率，与表盘配色口径不同）
             section {
                 statRow(label: "档位",
-                        value: "\(burnRateLevelLabel(coordinator.aggregator.level))"
-                             + "  (\(speedometerFormat(coordinator.aggregator.indicatorTokensPerMinute))/min)")
+                        value: "\(burnRateLevelLabel(aggregator.level))"
+                             + "  (\(speedometerFormat(aggregator.indicatorTokensPerMinute))/min)")
             }
 
             // 估算花费
             section {
                 statRow(label: "估算花费",
-                        value: formatCostPerHour(coordinator.aggregator.costPerHour))
+                        value: formatCostPerHour(aggregator.costPerHour))
             }
 
             // 今日累计
             section {
-                statRow(label: "今日累计", value: formatTokens(coordinator.aggregator.todayTotal))
+                statRow(label: "今日累计", value: formatTokens(aggregator.todayTotal))
             }
 
             Divider()
@@ -94,7 +95,7 @@ struct MenuBarContent: View {
     /// 按 ccusage 档位取表情。
     /// 原实现按 effectiveTokens 口径写死 2000/10000/30000，改用 Total 后已失效。
     private func petEmoji(_ level: BurnRateLevel) -> String {
-        guard !coordinator.aggregator.isIdle, coordinator.aggregator.hasBurnRate else { return "😴" }
+        guard !aggregator.isIdle, aggregator.hasBurnRate else { return "😴" }
         switch level {
         case .normal: return "🐢"
         case .moderate: return "🐰"
