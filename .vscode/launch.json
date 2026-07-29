@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vide-companion}/client",
+            "name": "Debug VibeCompanion (client)",
+            "target": "VibeCompanion",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug VibeCompanion (client)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vide-companion}/client",
+            "name": "Release VibeCompanion (client)",
+            "target": "VibeCompanion",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release VibeCompanion (client)"
+        }
+    ]
+}
